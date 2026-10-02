@@ -1,7 +1,10 @@
-#if defined _shooting_practice_included
+#if defined SP_HEADER_INCLUDED
     #endinput
 #endif
-#define _shooting_practice_included
+#define SP_HEADER_INCLUDED
 
 #include "features/shooting_practice/config"
+#include "features/shooting_practice/storage"
+#include "features/shooting_practice/session"
 #include "features/shooting_practice/setup"
+#include "features/shooting_practice/hooks"

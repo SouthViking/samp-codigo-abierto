@@ -62,7 +62,7 @@ if (!(Test-Path -LiteralPath $configPath)) {
     $config = [regex]::Replace($config, '(?m)^language[^\r\n]*', 'language Spanish')
     # Allow the map/YSI initialization work while retaining slow-call diagnostics.
     $config = [regex]::Replace($config, '(?m)^long_call_time[^\r\n]*', 'long_call_time 1000000')
-    $config += "`r`nbind 127.0.0.1`r`nquery 1`r`nlagcompmode 1`r`n"
+    $config += "`r`nbind 127.0.0.1`r`nquery 1`r`n"
     [IO.File]::WriteAllText($configPath, $config, [Text.Encoding]::ASCII)
     Write-Host 'Configuracion local creada con una clave RCON aleatoria.'
 } else {

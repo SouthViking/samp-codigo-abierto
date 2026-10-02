@@ -1,9 +1,7 @@
-#if defined _shooting_practice_setup_included
+#if defined SP_SETUP_INCLUDED
     #endinput
 #endif
-#define _shooting_practice_setup_included
-
-#define PRACTICE_LAYOUT_EXPORT_FILE "shooting_practice_points.inc"
+#define SP_SETUP_INCLUDED
 
 stock PracticeCapturePoint(playerid, point[E_PRACTICE_POINT])
 {
@@ -15,160 +13,142 @@ stock PracticeCapturePoint(playerid, point[E_PRACTICE_POINT])
     return 1;
 }
 
-stock PracticeShowPoint(playerid, const label[], const point[E_PRACTICE_POINT])
+stock PracticeShowPoint(playerid, slot)
 {
-    if (!point[PracticePointSet])
-    {
-        va_SendClientMessage(playerid, COLOR_FADE3, "%s: pendiente de marcar.", label);
-        return 1;
-    }
-
-    va_SendClientMessage(playerid, COLOR_GRAD1, "%s: X %.4f | Y %.4f | Z %.4f | Angulo %.4f",
-        label, point[PracticePointX], point[PracticePointY], point[PracticePointZ], point[PracticePointAngle]);
-    va_SendClientMessage(playerid, COLOR_GRAD1, "Interior: %d | Mundo virtual: %d",
-        point[PracticePointInterior], point[PracticePointWorld]);
+    if (!PracticePoints[slot][PracticePointSet]) return 1;
+    va_SendClientMessage(playerid, COLOR_GRAD1, "Punto %d: X %.2f | Y %.2f | Z %.2f | Angulo %.1f",
+        slot, PracticePoints[slot][PracticePointX], PracticePoints[slot][PracticePointY],
+        PracticePoints[slot][PracticePointZ], PracticePoints[slot][PracticePointAngle]);
     return 1;
 }
 
 stock PracticeShowLayout(playerid)
 {
-    PracticeShowPoint(playerid, "Inicio", PracticeStartPoint);
-    for (new index = 0; index < PRACTICE_TARGET_POSITION_COUNT; index++)
-    {
-        new label[24];
-        format(label, sizeof(label), "Blanco %d", index + 1);
-        PracticeShowPoint(playerid, label, PracticeTargetPoints[index]);
-    }
-
-    if (PracticeIsLayoutReady())
-        SendClientMessage(playerid, COLOR_LIGHTGREEN, "Los puntos estan completos. Usa /practicaconfig exportar para conservarlos.");
+    SendClientMessage(playerid, COLOR_HELP_1, "[ Practica: punto 0 = inicio; puntos 1-10 = blancos ]");
+    for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++) PracticeShowPoint(playerid, slot);
+    va_SendClientMessage(playerid, COLOR_GRAD1, "Interior: %d | Mundo: %d | Blancos: %d/10 | Arma: %d | Aprobar: %d puntos.",
+        PracticePoints[0][PracticePointInterior], PracticePoints[0][PracticePointWorld],
+        PracticeCountTargets(), PracticeRules[PracticeWeapon], PracticeRules[PracticePassPoints]);
+    va_SendClientMessage(playerid, COLOR_GRAD1, "Preparacion: %ds | Exposicion: %ds | Intervalo: %ds | Ocupado: %s.",
+        PracticeRules[PracticePreparation], PracticeRules[PracticeExposure], PracticeRules[PracticeInterval],
+        PracticeIsBusy() ? ("si") : ("no"));
+    new reason[144];
+    if (PracticeConfigurationReady(reason))
+        SendClientMessage(playerid, COLOR_LIGHTGREEN, "Configuracion lista. Equipa el arma y usa /practica en el inicio.");
     else
-        SendClientMessage(playerid, COLOR_LIGHTORANGE, "Faltan puntos: marca el inicio y los 3 blancos.");
-
-    SendClientMessage(playerid, COLOR_GRAD1, "Configuracion temporal: se pierde al reiniciar el servidor.");
+        SendClientMessage(playerid, COLOR_LIGHTORANGE, reason);
     return 1;
 }
 
 stock PracticeShowSetupHelp(playerid)
 {
-    SendClientMessage(playerid, COLOR_HELP_1, "[ Configuracion temporal de practica ]");
-    SendClientMessage(playerid, COLOR_GRAD1, "/practicaconfig inicio - marca la posicion del tirador.");
-    SendClientMessage(playerid, COLOR_GRAD1, "/practicaconfig blanco [1-3] - marca o reemplaza un punto de blanco.");
-    SendClientMessage(playerid, COLOR_GRAD1, "/practicaconfig ver - consulta los puntos y los que faltan.");
-    SendClientMessage(playerid, COLOR_GRAD1, "/practicaconfig exportar - escribe los puntos en scriptfiles/shooting_practice_points.inc.");
-    SendClientMessage(playerid, COLOR_GRAD1, "Ponte a pie y orienta al personaje como quieras guardar cada punto.");
-    SendClientMessage(playerid, COLOR_LIGHTORANGE, "Los puntos duran hasta reiniciar. Exportar reemplaza el archivo anterior; no lo carga automaticamente.");
+    SendClientMessage(playerid, COLOR_HELP_1, "[ Configuracion de practica - cambios guardados automaticamente ]");
+    SendClientMessage(playerid, COLOR_GRAD1, "/practicaconfig inicio - marca el puesto desde tu posicion actual.");
+    SendClientMessage(playerid, COLOR_GRAD1, "/practicaconfig blanco [1-10] | eliminar [1-10] - marca/reemplaza o elimina un blanco.");
+    SendClientMessage(playerid, COLOR_GRAD1, "/practicaconfig arma [22-34] | aprobar [puntos] - un impacto vale un punto.");
+    SendClientMessage(playerid, COLOR_GRAD1, "/practicaconfig preparacion [1-30] | tiempo [1-60] | intervalo [0-30] - segundos.");
+    SendClientMessage(playerid, COLOR_GRAD1, "/practicaconfig ver | guardar - consulta la configuracion o reintenta el guardado.");
+    SendClientMessage(playerid, COLOR_GRAD1, "Marca a pie. Los blancos deben estar a 3-100 metros del inicio, en el mismo interior/mundo.");
     return 1;
 }
 
-stock PracticeExportLayout(playerid)
+stock PracticeConfigurationChanged(playerid)
 {
-    if (!PracticeIsLayoutReady())
-        return SendClientMessage(playerid, COLOR_FADE3, "Marca el inicio y los 3 blancos antes de exportar. Consulta /practicaconfig ver.");
-
-    new File:output = fopen(PRACTICE_LAYOUT_EXPORT_FILE, io_write);
-    if (!output)
-        return SendClientMessage(playerid, COLOR_FADE3, "No se pudo exportar. Comprueba que exista scriptfiles y tenga permiso de escritura.");
-
-    new bool:success = true;
-    new line[256];
-
-    if (!fwrite(output, "// Captured with /practicaconfig exportar. Replace the declarations in config.inc.\r\n"))
-        success = false;
-    if (!fwrite(output, "// Fields: set, x, y, z, facing angle, interior, virtual world.\r\n"))
-        success = false;
-    if (!fwrite(output, "// Validate the target model pivot, orientation and collision in-game.\r\n\r\n"))
-        success = false;
-
-    format(line, sizeof(line), "new PracticeStartPoint[E_PRACTICE_POINT] = {true, %.4f, %.4f, %.4f, %.4f, %d, %d};\r\n\r\n",
-        PracticeStartPoint[PracticePointX], PracticeStartPoint[PracticePointY], PracticeStartPoint[PracticePointZ],
-        PracticeStartPoint[PracticePointAngle], PracticeStartPoint[PracticePointInterior], PracticeStartPoint[PracticePointWorld]);
-    if (!fwrite(output, line))
-        success = false;
-
-    if (!fwrite(output, "new PracticeTargetPoints[PRACTICE_TARGET_POSITION_COUNT][E_PRACTICE_POINT] =\r\n{\r\n"))
-        success = false;
-
-    for (new index = 0; index < PRACTICE_TARGET_POSITION_COUNT; index++)
-    {
-        format(line, sizeof(line), "    {true, %.4f, %.4f, %.4f, %.4f, %d, %d}",
-            PracticeTargetPoints[index][PracticePointX], PracticeTargetPoints[index][PracticePointY], PracticeTargetPoints[index][PracticePointZ],
-            PracticeTargetPoints[index][PracticePointAngle], PracticeTargetPoints[index][PracticePointInterior], PracticeTargetPoints[index][PracticePointWorld]);
-        if (!fwrite(output, line))
-            success = false;
-        if (index + 1 < PRACTICE_TARGET_POSITION_COUNT && !fwrite(output, ","))
-            success = false;
-        if (!fwrite(output, "\r\n"))
-            success = false;
-    }
-
-    if (!fwrite(output, "};\r\n"))
-        success = false;
-    if (!fclose(output))
-        success = false;
-
-    if (!success)
-        return SendClientMessage(playerid, COLOR_FADE3, "La exportacion fallo y el archivo puede estar incompleto. Los puntos siguen en memoria.");
-
-    SendClientMessage(playerid, COLOR_LIGHTGREEN, "Puntos exportados a scriptfiles/shooting_practice_points.inc.");
-    SendClientMessage(playerid, COLOR_GRAD1, "El archivo sirve para formalizar la configuracion; no se carga automaticamente.");
+    PracticeSaveAndNotify(playerid);
+    new reason[144];
+    if (!PracticeConfigurationReady(reason)) SendClientMessage(playerid, COLOR_LIGHTORANGE, reason);
     return 1;
 }
 
-CMD:practicaconfig(playerid, params[])
+CMD:practicaconfig(playerid, const params[])
 {
-    // The development layout is shared by the server, so editing requires RCON.
     if (!IsPlayerAdmin(playerid))
-        return SendClientMessage(playerid, COLOR_FADE3, "Necesitas ser administrador RCON para configurar los puntos de practica.");
-
-    if (isnull(params) || !strcmp(params, "ayuda", true))
-        return PracticeShowSetupHelp(playerid);
-    if (!strcmp(params, "ver", true))
-        return PracticeShowLayout(playerid);
-    if (!strcmp(params, "exportar", true))
-        return PracticeExportLayout(playerid);
+        return SendClientMessage(playerid, COLOR_FADE3, "Necesitas ser administrador RCON para configurar la practica.");
+    if (isnull(params) || !strcmp(params, "ayuda", true)) return PracticeShowSetupHelp(playerid);
+    if (!strcmp(params, "ver", true)) return PracticeShowLayout(playerid);
+    if (!strcmp(params, "guardar", true) || !strcmp(params, "exportar", true))
+        return PracticeSaveAndNotify(playerid);
+    if (PracticeIsBusy())
+        return SendClientMessage(playerid, COLOR_FADE3, "Espera a que termine la practica para modificar la configuracion.");
 
     if (!strcmp(params, "inicio", true))
     {
         if (GetPlayerState(playerid) != PLAYER_STATE_ONFOOT)
             return SendClientMessage(playerid, COLOR_FADE3, "Debes estar a pie para marcar un punto.");
-
-        // A layout has one world/interior. Moving the start to another dimension
-        // invalidates the old targets rather than leaving an unusable mixture.
-        if (PracticeStartPoint[PracticePointSet]
-            && (PracticeStartPoint[PracticePointInterior] != GetPlayerInterior(playerid)
-                || PracticeStartPoint[PracticePointWorld] != GetPlayerVirtualWorld(playerid)))
+        new point[E_PRACTICE_POINT];
+        PracticeCapturePoint(playerid, point);
+        if (!PracticePointValid(point))
+            return SendClientMessage(playerid, COLOR_FADE3, "La posicion actual no es valida.");
+        if (PracticePoints[0][PracticePointSet] && !PracticeSameDimension(PracticePoints[0], point))
         {
-            for (new index = 0; index < PRACTICE_TARGET_POSITION_COUNT; index++)
-                PracticeTargetPoints[index][PracticePointSet] = false;
-            SendClientMessage(playerid, COLOR_LIGHTORANGE, "El inicio cambio de interior o mundo: vuelve a marcar los 3 blancos.");
+            for (new slot = 1; slot <= PRACTICE_MAX_TARGETS; slot++)
+                PracticePoints[slot][PracticePointSet] = false;
+            SendClientMessage(playerid, COLOR_LIGHTORANGE, "El inicio cambio de interior/mundo. Vuelve a marcar los blancos.");
         }
-
-        PracticeCapturePoint(playerid, PracticeStartPoint);
-        SendClientMessage(playerid, COLOR_LIGHTGREEN, "Inicio marcado en tu posicion y orientacion actuales.");
-        return PracticeShowPoint(playerid, "Inicio", PracticeStartPoint);
+        PracticePoints[0] = point;
+        SendClientMessage(playerid, COLOR_LIGHTGREEN, "Inicio marcado en tu posicion actual.");
+        return PracticeConfigurationChanged(playerid);
     }
 
-    new action[16], targetSlot;
-    if (sscanf(params, "s[16]i", action, targetSlot) || strcmp(action, "blanco", true))
-        return PracticeShowSetupHelp(playerid);
-    if (targetSlot < 1 || targetSlot > PRACTICE_TARGET_POSITION_COUNT)
-        return SendClientMessage(playerid, COLOR_FADE3, "El numero de blanco debe estar entre 1 y 3.");
-    if (GetPlayerState(playerid) != PLAYER_STATE_ONFOOT)
-        return SendClientMessage(playerid, COLOR_FADE3, "Debes estar a pie para marcar un punto.");
-    if (!PracticeStartPoint[PracticePointSet])
-        return SendClientMessage(playerid, COLOR_FADE3, "Primero marca el puesto del tirador con /practicaconfig inicio.");
-    if (GetPlayerInterior(playerid) != PracticeStartPoint[PracticePointInterior]
-        || GetPlayerVirtualWorld(playerid) != PracticeStartPoint[PracticePointWorld])
-        return SendClientMessage(playerid, COLOR_FADE3, "El blanco debe estar en el mismo interior y mundo que el inicio.");
+    new action[20], value;
+    if (sscanf(params, "s[20]i", action, value)) return PracticeShowSetupHelp(playerid);
+    if (!strcmp(action, "blanco", true) || !strcmp(action, "eliminar", true))
+    {
+        if (value < 1 || value > PRACTICE_MAX_TARGETS)
+            return SendClientMessage(playerid, COLOR_FADE3, "El numero de blanco debe estar entre 1 y 10.");
+        if (!strcmp(action, "eliminar", true))
+        {
+            PracticePoints[value][PracticePointSet] = false;
+            va_SendClientMessage(playerid, COLOR_LIGHTGREEN, "Blanco %d eliminado.", value);
+            return PracticeConfigurationChanged(playerid);
+        }
+        if (GetPlayerState(playerid) != PLAYER_STATE_ONFOOT)
+            return SendClientMessage(playerid, COLOR_FADE3, "Debes estar a pie para marcar un punto.");
+        if (!PracticePoints[0][PracticePointSet])
+            return SendClientMessage(playerid, COLOR_FADE3, "Primero marca /practicaconfig inicio.");
+        new point[E_PRACTICE_POINT];
+        PracticeCapturePoint(playerid, point);
+        if (!PracticePointValid(point) || !PracticeSameDimension(PracticePoints[0], point))
+            return SendClientMessage(playerid, COLOR_FADE3, "El blanco debe tener una posicion valida en el mismo interior y mundo que el inicio.");
+        if (!PracticeTargetDistanceValid(PracticePoints[0], point))
+            return SendClientMessage(playerid, COLOR_FADE3, "El blanco debe estar entre 3 y 100 metros del inicio. Ten en cuenta el alcance del arma.");
+        PracticePoints[value] = point;
+        va_SendClientMessage(playerid, COLOR_LIGHTGREEN, "Blanco %d marcado. Durante la practica aparecera una caja en esa posicion.", value);
+        return PracticeConfigurationChanged(playerid);
+    }
 
-    new index = targetSlot - 1;
-    PracticeCapturePoint(playerid, PracticeTargetPoints[index]);
-    va_SendClientMessage(playerid, COLOR_LIGHTGREEN, "Blanco %d marcado en tu posicion y orientacion actuales.", targetSlot);
-    new label[24];
-    format(label, sizeof(label), "Blanco %d", targetSlot);
-    PracticeShowPoint(playerid, label, PracticeTargetPoints[index]);
-    if (PracticeIsLayoutReady())
-        SendClientMessage(playerid, COLOR_LIGHTGREEN, "Inicio y 3 blancos marcados. Puedes exportarlos con /practicaconfig exportar.");
-    return 1;
+    if (!strcmp(action, "arma", true))
+    {
+        if (!PracticeIsSupportedWeapon(value))
+            return SendClientMessage(playerid, COLOR_FADE3, "Usa un arma de fuego compatible: ID 22-34 (por ejemplo, 24 = Desert Eagle).");
+        PracticeRules[PracticeWeapon] = value;
+    }
+    else if (!strcmp(action, "aprobar", true))
+    {
+        if (value < 1 || value > PracticeCountTargets())
+            return va_SendClientMessage(playerid, COLOR_FADE3, "El minimo debe estar entre 1 y la cantidad de blancos configurados (%d).", PracticeCountTargets());
+        PracticeRules[PracticePassPoints] = value;
+    }
+    else if (!strcmp(action, "preparacion", true))
+    {
+        if (value < 1 || value > 30)
+            return SendClientMessage(playerid, COLOR_FADE3, "La preparacion debe durar entre 1 y 30 segundos.");
+        PracticeRules[PracticePreparation] = value;
+    }
+    else if (!strcmp(action, "tiempo", true))
+    {
+        if (value < 1 || value > 60)
+            return SendClientMessage(playerid, COLOR_FADE3, "Cada blanco debe durar entre 1 y 60 segundos.");
+        PracticeRules[PracticeExposure] = value;
+    }
+    else if (!strcmp(action, "intervalo", true))
+    {
+        if (value < 0 || value > 30)
+            return SendClientMessage(playerid, COLOR_FADE3, "El intervalo debe durar entre 0 y 30 segundos.");
+        PracticeRules[PracticeInterval] = value;
+    }
+    else return PracticeShowSetupHelp(playerid);
+
+    va_SendClientMessage(playerid, COLOR_LIGHTGREEN, "Configuracion actualizada: %s = %d.", action, value);
+    return PracticeConfigurationChanged(playerid);
 }

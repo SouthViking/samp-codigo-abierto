@@ -31,5 +31,9 @@ El objetivo de este proyecto de código abierto es democratizar el conocimiento, 
 La preparacion reproducible y los comandos de inicio, estado y apagado estan en [.internal/local-windows-server.md](.internal/local-windows-server.md).
 El entorno se instala en `.local-server/` (ignorado por Git) y permite conectar desde el mismo PC a `127.0.0.1:7777`.
 
+## Practicas de tiro (MVP)
+Configura un puesto con hasta diez blancos, arma, puntaje y tiempos usando `/practicaconfig`; inicia con `/practica`.
+La guia para probarlo esta en [.internal/shooting-practice-testing.md](.internal/shooting-practice-testing.md).
+
 ## Licencia
 Este proyecto está licenciado bajo los términos de la [Licencia MIT](https://opensource.org/licenses/MIT). Eres libre de usar, modificar y distribuir este software con pocas restricciones.  

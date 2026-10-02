@@ -16,7 +16,7 @@ Add **127.0.0.1:7777** to a compatible SA-MP 0.3.DL-R1 client's favourites on th
 
 Stop sends an authenticated local RCON `exit` command and waits for shutdown. It only controls this checkout's executable and has a checked process fallback if graceful shutdown fails. Build can also be run independently with `-Action Build` while the server is stopped.
 
-The local configuration is `.local-server/server.cfg`, the runtime log is `.local-server/server_log.txt`, and exports are written under `.local-server/scriptfiles/`. The local RCON password is generated randomly during preparation and is not printed by these scripts. Read the local configuration to log in using `/rcon login <your local password>`, then use `/practicaconfig`.
+The local configuration is `.local-server/server.cfg`, the runtime log is `.local-server/server_log.txt`, and exports are written under `.local-server/scriptfiles/`. The local RCON password is generated randomly during preparation and is not printed by these scripts. Read the local configuration to log in using `/rcon login <your local password>`, then follow the [shooting practice testing guide](shooting-practice-testing.md).
 
 ## Reproduce the installation
 
@@ -56,4 +56,4 @@ The local configuration binds to loopback, retains lag compensation for shot cal
 - Confirmed local RCON shutdown and a subsequent launch through the scripts.
 - Runtime files, credentials, caches and generated AMX files remain ignored by Git.
 
-These checks establish server startup and query availability. No player/client connection, point-capture command, exported layout, target collision or shooting exercise has been validated in-game. The feature currently implements only `/practicaconfig`; `/practica`, targets, HUD and scoring are still pending.
+These historical checks establish server startup and query availability. The current branch also implements persistent configuration and the complete practice loop; see the [testing guide](shooting-practice-testing.md). Client rendering, collision and actual player shooting still need validation in-game. The first version uses chat messages rather than a graphical HUD.
