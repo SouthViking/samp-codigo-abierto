@@ -27,5 +27,9 @@ El objetivo de este proyecto de código abierto es democratizar el conocimiento, 
 2. Descomprimir el Pawn Compiler en la carpeta /pawno.
 3. Compilar en tu editor favorito y ejecutar samp-server.exe.
 
+## Servidor local en Windows
+La preparacion reproducible y los comandos de inicio, estado y apagado estan en [.internal/local-windows-server.md](.internal/local-windows-server.md).
+El entorno se instala en `.local-server/` (ignorado por Git) y permite conectar desde el mismo PC a `127.0.0.1:7777`.
+
 ## Licencia
 Este proyecto está licenciado bajo los términos de la [Licencia MIT](https://opensource.org/licenses/MIT). Eres libre de usar, modificar y distribuir este software con pocas restricciones.  

@@ -1,6 +1,6 @@
 # Shooting Practice MVP - Implementation Handoff
 
-Status: design and implementation handoff; the shooting practice system has not been implemented or tested in-game.
+Status: temporary coordinate setup implemented; the practice engine, countdown, targets, HUD, and scoring have not been implemented or tested in-game.
 
 - Prepared: 2026-10-01.
 - Fork: <https://github.com/SouthViking/samp-codigo-abierto>.
@@ -24,7 +24,7 @@ For a future Field Training Program (FTP), these results can support an instruct
 ### Confirmed product direction
 
 - Separate **configuration/administration** from **execution of a practice**.
-- Implement the execution first. Configuration can be static data in Pawn for this MVP.
+- Implement the execution with a small temporary coordinate setup command for testing. Exercise timings, model, and weapon can remain static data in Pawn for this MVP.
 - Start from a predefined position using an in-game command.
 - Present targets according to configuration and measure the player's performance.
 - Assume the player already has the weapon and ammunition. Do not supply, remove, replenish, save, or restore equipment as part of the practice.
@@ -56,6 +56,7 @@ Station coordinates, target transforms, the exact weapon, and the target model s
 
 ## 3. What the MVP includes
 
+- A temporary `/practicaconfig` command to capture a test station and three target positions from the character's position and facing angle; see the setup instructions below.
 - A self-service command, proposed as `/practica`, to start at the nearest eligible configured station.
 - `/practica cancelar` to end the participant's current attempt.
 - Static station and exercise definitions with bounded capacities.
@@ -71,9 +72,34 @@ Station coordinates, target transforms, the exact weapon, and the target model s
 
 The first demonstration may allow any eligible player to use the station as an explicit development policy. Put that decision in the access integration function, not throughout the engine. A production deployment must replace it with the desired access policy.
 
+### Temporary coordinate setup
+
+This is an explicit extension requested after the initial handoff: configure the points in-game for testing, then formalize them later. The command is implemented under `gamemodes/features/shooting_practice/` and included by `SARP.pwn`. It captures coordinates only; `/practica` and the exercise engine are still pending.
+
+Log in as an RCON administrator to edit this shared development layout. Stand on foot at each desired position and face the desired direction before marking it.
+
+| Command | Effect |
+| --- | --- |
+| `/practicaconfig` or `/practicaconfig ayuda` | Show setup instructions. |
+| `/practicaconfig inicio` | Capture or replace the shooter's starting position, facing angle, interior, and virtual world. |
+| `/practicaconfig blanco 1` | Capture or replace target position 1. Repeat with `2` and `3` for the other positions. |
+| `/practicaconfig ver` | List the current points, their transforms, and any missing points. |
+| `/practicaconfig exportar` | Export a complete layout to `scriptfiles/shooting_practice_points.inc`, replacing an earlier export. |
+
+- Points are shared server memory and last until a gamemode/server restart. Marking the same slot again replaces it.
+- Targets must be in the start point's interior and virtual world. Moving the start within that same dimension keeps the target positions; moving it to a different dimension invalidates the old targets and requires marking them again.
+- The export contains Pawn declarations that can replace `PracticeStartPoint` and `PracticeTargetPoints` in `config.inc` when formalizing the layout. It is not automatically loaded on restart. The `scriptfiles` directory must exist and be writable; it is ignored by Git.
+- The captured Z and angle are the character's exact transform. No target model offset is assumed. Validate the eventual object's pivot, height, facing, and collision before using these transforms in an exercise.
+- These are three reusable positions, not three presentations. The exercise may revisit them across its proposed ten presentations.
+- Once the practice engine is added, prevent layout edits during an active attempt and consume these configuration records separately from session state.
+
+Validation on 2026-10-01: both the untouched branch baseline and the full gamemode with the setup module compiled successfully using Pawn Community Compiler 3.10.10 with `-i../pawno/include`, `-;+`, `-(+`, and `-d3`, from the `gamemodes` directory. No compiler diagnostics were emitted with the repository's existing warning settings. The compiler, logs, and generated AMX files were kept outside the repository. The existing entry point's encoding was preserved, with only one feature include added.
+
+In-game validation remains pending: mark and replace all four points; check out-of-range target slots, non-admin access, being in a vehicle, and mismatched dimensions; verify missing points block export; inspect the generated Pawn declarations; and confirm that a restart clears the temporary layout. This compilation check does not establish that the command, export, or future target placement has been exercised in a SA-MP server/client.
+
 ## 4. Outside the MVP
 
-- In-game administration commands, a map editor, creation/deletion of facilities, or a configuration UI.
+- Full facility administration, a map editor, creation/deletion of facilities, or a configuration UI. The temporary coordinate setup above is the only administration included for initial testing.
 - SQL, schema migrations, permanent player records, saved attempts, leaderboards, or external services.
 - Faction membership, rank management, FTP enrollment, promotions, certificates, or automatic FTP approval.
 - Instructor invitations, supervised-session controls, manual evaluations, or instructor dashboards.
@@ -208,6 +234,8 @@ References:
 - [Repository README](https://github.com/San-Andreas-Roleplay-ES/samp-codigo-abierto#readme).
 
 ## 9. Environment and validation
+
+Local checkout update, 2026-10-02: the Windows runtime has been prepared, started, queried over UDP, stopped through RCON, and restarted successfully. See [local Windows server instructions](local-windows-server.md) for the launch commands, pinned downloads, and validation limits. The point-capture command and shooting exercise remain untested with a player in-game.
 
 The clone contains source and includes, but not the complete executable runtime. The README names SA-MP `0.3.DL-R1` and Pawn Community Compiler `3.10.10`. The checked-in VS Code build task invokes `pawno/pawncc.exe`. Server binaries, compiler executables, plugin binaries, and any required runtime data must be prepared separately in a compatible environment.
 
