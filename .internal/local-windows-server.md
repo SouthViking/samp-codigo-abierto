@@ -1,6 +1,8 @@
 # Local Windows development server
 
-Prepared and startup-checked on 2026-10-02 for this checkout's `feat/shooting-practice-mvp` branch.
+Current local state (2026-10-07): the server was stopped at the user's request. The latest verdict-word colors, literal accuracy percentage, final Save row, protected-target label and automatic departure reason compile successfully and pass 606 isolated assertions. They will load on the next requested start. Runtime files and saved station configuration remain local.
+
+Prepared on 2026-10-02 and startup-checked again on 2026-10-03 for this checkout's `feat/shooting-practice-mvp` branch.
 
 ## Run
 
@@ -56,4 +58,32 @@ The local configuration binds to loopback, retains lag compensation for shot cal
 - Confirmed local RCON shutdown and a subsequent launch through the scripts.
 - Runtime files, credentials, caches and generated AMX files remain ignored by Git.
 
-These historical checks establish server startup and query availability. The current branch also implements persistent configuration and the complete practice loop; see the [testing guide](shooting-practice-testing.md). Client rendering, collision and actual player shooting still need validation in-game. The first version uses chat messages rather than a graphical HUD.
+The 2026-10-03 revision includes dialog configuration, native object editing, per-target models/names/full rotations, private previews, multiple permitted weapons, numeric help, detailed private results, named departure and a participant countdown overlay. The existing layout loaded successfully and retained its exact SHA256 after restart; its configuration and previous executable were backed up locally. Versions 1-4 load automatically and upgrade to v5 only on a later save. The updated server is running at 127.0.0.1:7777.
+
+On 2026-10-07 the root menu was simplified: Punto de inicio saves directly, Vista previa stays on the root, Resumen was removed, and reset confirmation uses Reiniciar. The updated build was verified and deployed locally.
+
+Later feedback adds conditional start actions, early distance checks, stable visible targets during editing, simpler behavior names and no duplicated label numbering. The latest source also adds preview-hit repair, five result lines with white details and a green/red verdict, minimum one-second countdown
+cue spacing and decimal exposure/interval in tenths. It compiled separately and passed 569 assertions.
+The latest build was deployed on 2026-10-07 after an explicit user restart request. All seven plugins
+and the practice configuration loaded. UDP responds at 127.0.0.1:7777, and the configuration SHA256
+was unchanged. The previous executable and configuration are backed up under the ignored
+.local-server/backups/verdict-colors-b94276aa573e475d8c8cbf9923e87037 directory.
+New saves use format 6, converting older whole-second
+timings on load without rewriting the saved file.
+
+A subsequent wording correction changes the result to Veredicto: Aprobado / Veredicto: Reprobado,
+keeping the green/red colors. This correction was loaded on 2026-10-07 after the user explicitly requested another restart.
+All seven plugins and the configuration loaded, UDP status responds, and the configuration hash is unchanged.
+
+The next start-capture correction restricts the 100 m draft radius to target drafts, so an initial
+start or a relocation far from the previous station can be saved. It reproduces the reported failure
+and passes 587 assertions after the fix, plus full compilation. This fix and the new /irpruebas
+shortcut were deployed on explicit request on 2026-10-07. The full gamemode compiled, all seven
+plugins and the saved configuration loaded, UDP status responds and the configuration hash is unchanged.
+
+During in-game feedback, keep the playable server running. Restart it only when the user explicitly requests it.
+
+The full gamemode compiled with warnings treated as errors. The original practice was confirmed in-game by the user. Countdown placement, rendered accents, model cards, private visibility, silhouette collision and sound require client validation. See the [configuration and testing guide](shooting-practice-testing.md).
+
+Development shortcut: /irpruebas requires RCON and on-foot state. It moves only the caller to
+802.8580, 1674.5205, 5.2813 at angle 181.2324, interior/world 0. The station remains independently configured.

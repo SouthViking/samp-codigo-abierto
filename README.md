@@ -28,11 +28,11 @@ El objetivo de este proyecto de código abierto es democratizar el conocimiento, 
 3. Compilar en tu editor favorito y ejecutar samp-server.exe.
 
 ## Servidor local en Windows
-La preparacion reproducible y los comandos de inicio, estado y apagado estan en [.internal/local-windows-server.md](.internal/local-windows-server.md).
+La preparación reproducible y los comandos de inicio, estado y apagado están en [.internal/local-windows-server.md](.internal/local-windows-server.md).
 El entorno se instala en `.local-server/` (ignorado por Git) y permite conectar desde el mismo PC a `127.0.0.1:7777`.
 
 ## Practicas de tiro (MVP)
-Configura un puesto con hasta diez blancos, arma, puntaje y tiempos usando `/practicaconfig`; inicia con `/practica`.
+Abre `/practicaconfig` para configurar hasta diez blancos desde diálogos: objeto y comportamiento independientes, editor visual de posición/rotación, vista previa privada, varias armas permitidas, reglas con ayuda y aleatoriedad. Inicia con `/practica`; incluye cuenta regresiva en pantalla y resultados explicados.
 La guia para probarlo esta en [.internal/shooting-practice-testing.md](.internal/shooting-practice-testing.md).
 
 ## Licencia
