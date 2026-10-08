@@ -30,40 +30,40 @@ stock PracticeHideCountdown(playerid)
     return 1;
 }
 
-stock bool:PracticeCanObserve(playerid)
+stock bool:PracticeCanObserve(zone, playerid)
 {
     return IsPlayerConnected(playerid) && !IsPlayerNPC(playerid)
-        && GetPlayerVirtualWorld(playerid) == PracticePoints[0][PracticePointWorld]
-        && GetPlayerInterior(playerid) == PracticePoints[0][PracticePointInterior]
-        && IsPlayerInRangeOfPoint(playerid, PRACTICE_CUE_RADIUS, PracticePoints[0][PracticePointX],
-            PracticePoints[0][PracticePointY], PracticePoints[0][PracticePointZ]);
+        && GetPlayerVirtualWorld(playerid) == PracticePoints[zone][0][PracticePointWorld]
+        && GetPlayerInterior(playerid) == PracticePoints[zone][0][PracticePointInterior]
+        && IsPlayerInRangeOfPoint(playerid, PRACTICE_CUE_RADIUS, PracticePoints[zone][0][PracticePointX],
+            PracticePoints[zone][0][PracticePointY], PracticePoints[zone][0][PracticePointZ]);
 }
 
-stock PracticePlayCue(soundid)
+stock PracticePlayCue(zone, soundid)
 {
     // These are built-in frontend tones. Filter recipients explicitly; do not
     // assume 3D attenuation or that a virtual world filters sound automatically.
     for (new playerid = 0; playerid < MAX_PLAYERS; playerid++)
-        if (PracticeCanObserve(playerid)) PlayerPlaySound(playerid, soundid, 0.0, 0.0, 0.0);
+        if (PracticeCanObserve(zone, playerid)) PlayerPlaySound(playerid, soundid, 0.0, 0.0, 0.0);
     return 1;
 }
 
-stock PracticeAmbientMessage(const message[])
+stock PracticeAmbientMessage(zone, const message[])
 {
     // Anchor environmental messages to the station even if the participant has
     // disconnected, walked away or changed dimension. No player is impersonated.
     for (new playerid = 0; playerid < MAX_PLAYERS; playerid++)
-        if (PracticeCanObserve(playerid)) SendClientMessage(playerid, COLOR_PURPLE, message);
+        if (PracticeCanObserve(zone, playerid)) SendClientMessage(playerid, COLOR_PURPLE, message);
     return 1;
 }
 
-stock PracticePresentCountdown()
+stock PracticePresentCountdown(zone)
 {
-    new playerid = PracticeSession[PracticePlayer], text[32];
+    new playerid = PracticeSession[zone][PracticePlayer], text[32];
     if (IsPlayerConnected(playerid))
     {
         // Plain GXT-safe text; only the participant sees this small, owned overlay.
-        format(text, sizeof(text), "Comienza en %d", PracticeSession[PracticeLastCountdown]);
+        format(text, sizeof(text), "Comienza en %d", PracticeSession[zone][PracticeLastCountdown]);
         if (PracticeCountdownText[playerid] == PlayerText:INVALID_TEXT_DRAW)
         {
             PracticeCountdownText[playerid] = CreatePlayerTextDraw(playerid, 320.0, 360.0, text);
@@ -79,37 +79,37 @@ stock PracticePresentCountdown()
         }
         else PlayerTextDrawSetString(playerid, PracticeCountdownText[playerid], text);
     }
-    return PracticePlayCue(PRACTICE_SOUND_COUNTDOWN);
+    return PracticePlayCue(zone, PRACTICE_SOUND_COUNTDOWN);
 }
 
-stock PracticePresentStart(playerid)
+stock PracticePresentStart(zone, playerid)
 {
     new name[MAX_PLAYER_NAME], message[144];
     GetPlayerRoleplayName(playerid, name, sizeof(name));
     format(message, sizeof(message), "* %s se prepara para comenzar la práctica de tiro.", name);
-    PracticeAmbientMessage(message);
-    return PracticePresentCountdown();
+    PracticeAmbientMessage(zone, message);
+    return PracticePresentCountdown(zone);
 }
 
-stock PracticePresentTarget()
+stock PracticePresentTarget(zone)
 {
-    return PracticePlayCue(PRACTICE_SOUND_TARGET);
+    return PracticePlayCue(zone, PRACTICE_SOUND_TARGET);
 }
 
-stock PracticePresentEnd(bool:completed, playerid, bool:abandoned)
+stock PracticePresentEnd(zone, bool:completed, playerid, bool:abandoned)
 {
-    PracticePlayCue(PRACTICE_SOUND_END);
+    PracticePlayCue(zone, PRACTICE_SOUND_END);
     if (abandoned)
     {
         new name[MAX_PLAYER_NAME], message[144];
         GetPlayerRoleplayName(playerid, name, sizeof(name));
         format(message, sizeof(message), "* %s abandona el puesto de tiro.", name);
-        PracticeAmbientMessage(message);
+        PracticeAmbientMessage(zone, message);
     }
     else if (completed)
-        PracticeAmbientMessage("* La señal del puesto indica el final del ejercicio. (( Puesto de tiro ))");
+        PracticeAmbientMessage(zone, "* La señal del puesto indica el final del ejercicio. (( Puesto de tiro ))");
     else
-        PracticeAmbientMessage("* La señal del puesto indica que el ejercicio se ha interrumpido. (( Puesto de tiro ))");
+        PracticeAmbientMessage(zone, "* La señal del puesto indica que el ejercicio se ha interrumpido. (( Puesto de tiro ))");
     return 1;
 }
 
@@ -152,12 +152,12 @@ stock PracticeReportResult(playerid, bool:completed, const result[E_PRACTICE_SES
     return PracticeSendResultLine(playerid, COLOR_WHITE, message);
 }
 
-stock PracticeShowAllowedWeapons(playerid)
+stock PracticeShowAllowedWeapons(zone, playerid)
 {
     new message[144] = "Armas permitidas: ", name[32], count;
     for (new weaponid = PRACTICE_WEAPON_FIRST; weaponid <= PRACTICE_WEAPON_LAST; weaponid++)
     {
-        if (!PracticeWeaponAllowed(weaponid, PracticeRules[PracticeWeaponMask])) continue;
+        if (!PracticeWeaponAllowed(weaponid, PracticeRules[zone][PracticeWeaponMask])) continue;
         PracticeWeaponName(weaponid, name);
         // Leave room for punctuation, even if every weapon is enabled.
         if (strlen(message) + strlen(name) + 3 >= sizeof(message))
@@ -172,16 +172,16 @@ stock PracticeShowAllowedWeapons(playerid)
     return SendClientMessage(playerid, COLOR_GRAD1, message);
 }
 
-stock PracticeShowPlayerHelp(playerid)
+stock PracticeShowPlayerHelp(zone, playerid)
 {
     SendClientMessage(playerid, COLOR_GRAD1, "En el puesto, equipa un arma permitida y usa /practica. Puedes alternar entre las permitidas. Para salir: /practica cancelar.");
     SendClientMessage(playerid, COLOR_GRAD1, "Blanco de tiro: un impacto suma 1. Blanco protegido: cualquier disparo, incluso al aire, resta 1 y cuenta un error de identificación.");
     SendClientMessage(playerid, COLOR_GRAD1, "Procura un tiro por blanco de tiro. Fallar o disparar de más reduce la precisión: aciertos divididos por todos los disparos.");
     SendClientMessage(playerid, COLOR_GRAD1, "Cajas: roja DISPARAR, azul NO DISPARAR. El instructor define el comportamiento de cada silueta.");
-    PracticeShowAllowedWeapons(playerid);
+    PracticeShowAllowedWeapons(zone, playerid);
     va_SendClientMessage(playerid, COLOR_GRAD1, "Preparación: %ds. Tiempo por blanco: %.1fs. Intervalo: %.1fs. La cuenta regresiva se muestra en pantalla.",
-        PracticeRules[PracticePreparation], float(PracticeRules[PracticeExposure]) / 1000.0, float(PracticeRules[PracticeInterval]) / 1000.0);
+        PracticeRules[zone][PracticePreparation], float(PracticeRules[zone][PracticeExposure]) / 1000.0, float(PracticeRules[zone][PracticeInterval]) / 1000.0);
     va_SendClientMessage(playerid, COLOR_GRAD1, "Para aprobar: mínimo %d puntos netos y máximo %d errores de identificación. Permanece a menos de 3 metros del inicio.",
-        PracticeRules[PracticePassPoints], PracticeRules[PracticeMaxErrors]);
+        PracticeRules[zone][PracticePassPoints], PracticeRules[zone][PracticeMaxErrors]);
     return 1;
 }

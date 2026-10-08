@@ -5,15 +5,15 @@
 
 // Build once per attempt. Each configured position appears exactly once and the
 // type counts are exact. Fixed distribution respects each position's saved type.
-stock PracticeBuildSequence(slots[PRACTICE_MAX_TARGETS], bool:noShoot[PRACTICE_MAX_TARGETS], models[PRACTICE_MAX_TARGETS])
+stock PracticeBuildSequence(zone, slots[PRACTICE_MAX_TARGETS], bool:noShoot[PRACTICE_MAX_TARGETS], models[PRACTICE_MAX_TARGETS])
 {
     new total;
     for (new slot = 1; slot <= PRACTICE_MAX_TARGETS; slot++)
     {
-        if (!PracticePoints[slot][PracticePointSet]) continue;
+        if (!PracticePoints[zone][slot][PracticePointSet]) continue;
         slots[total] = slot;
-        models[total] = PracticePoints[slot][PracticePointModel];
-        noShoot[total++] = PracticePoints[slot][PracticePointNoShoot];
+        models[total] = PracticePoints[zone][slot][PracticePointModel];
+        noShoot[total++] = PracticePoints[zone][slot][PracticePointNoShoot];
     }
     for (new index = total; index < PRACTICE_MAX_TARGETS; index++)
     {
@@ -23,7 +23,7 @@ stock PracticeBuildSequence(slots[PRACTICE_MAX_TARGETS], bool:noShoot[PRACTICE_M
     }
 
     // Redistribute the model/behaviour pairs together, independently of order.
-    if (PracticeRules[PracticeRandomTypes])
+    if (PracticeRules[zone][PracticeRandomTypes])
     {
         for (new index = total - 1; index > 0; index--)
         {
@@ -36,7 +36,7 @@ stock PracticeBuildSequence(slots[PRACTICE_MAX_TARGETS], bool:noShoot[PRACTICE_M
             models[other] = temporaryModel;
         }
     }
-    if (PracticeRules[PracticeRandomOrder])
+    if (PracticeRules[zone][PracticeRandomOrder])
     {
         for (new index = total - 1; index > 0; index--)
         {

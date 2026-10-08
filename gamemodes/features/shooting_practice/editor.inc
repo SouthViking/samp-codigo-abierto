@@ -3,9 +3,9 @@
 #endif
 #define SP_EDITOR_INCLUDED
 
-// The station has one writer. Previews are private to each viewer and never use
-// the session's object handle or the general administrator object's registry.
-new PracticeEditorOwner = INVALID_PLAYER_ID;
+// Each zone has one writer. A player's draft and private preview use its stable
+// selected zone binding; unrelated zones retain their locks and object handles.
+new PracticeEditorOwner[PRACTICE_MAX_ZONES] = {INVALID_PLAYER_ID, ...};
 new PracticeDraftSlot[MAX_PLAYERS] = {-1, ...};
 new PracticeDraftRevision[MAX_PLAYERS];
 new PracticeDraft[MAX_PLAYERS][E_PRACTICE_POINT];
@@ -18,36 +18,47 @@ new STREAMER_TAG_3D_TEXT_LABEL:PracticePreviewLabels[MAX_PLAYERS][PRACTICE_MAX_T
 new STREAMER_TAG_CP:PracticePreviewCheckpoint[MAX_PLAYERS];
 new bool:PracticePreviewRepair[MAX_PLAYERS][PRACTICE_MAX_TARGETS], bool:PracticePreviewRepairPending;
 
-stock PracticeConfigurationEditing()
+stock PracticeConfigurationEditing(zone)
 {
-    return PracticeEditorOwner != INVALID_PLAYER_ID;
+    return zone >= 0 && zone < PRACTICE_MAX_ZONES && PracticeEditorOwner[zone] != INVALID_PLAYER_ID;
 }
 
 stock PracticeHasDraft(playerid)
 {
-    return PracticeEditorOwner == playerid && PracticeDraftSlot[playerid] >= 0;
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
+    return PracticeEditorOwner[zone] == playerid && PracticeDraftSlot[playerid] >= 0;
 }
 
+// Administration currently requires RCON. Host administrative roles belong in
+// one shared policy used here, the setup command/menu and preview maintenance.
+// Group/faction grants for practicing must not bypass this policy.
 stock bool:PracticeAdminAvailable(playerid)
 {
     new Float:health;
-    return IsPlayerConnected(playerid) && !IsPlayerNPC(playerid) && IsPlayerAdmin(playerid)
-        && GetPlayerState(playerid) == PLAYER_STATE_ONFOOT && GetPlayerHealth(playerid, health) && health > 0.0;
+    return PracticeIsAdministrator(playerid) && GetPlayerState(playerid) == PLAYER_STATE_ONFOOT && GetPlayerHealth(playerid, health) && health > 0.0;
 }
 
 stock bool:PracticeMayChange(playerid)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return false;
+    if (PracticeStorageBlocked)
+    {
+        SendClientMessage(playerid, COLOR_FADE3, "El archivo de zonas no pudo recuperarse. Corrígelo antes de guardar cambios.");
+        return false;
+    }
     if (!PracticeAdminAvailable(playerid))
     {
         SendClientMessage(playerid, COLOR_FADE3, "Necesitas ser administrador RCON, estar vivo y a pie.");
         return false;
     }
-    if (PracticeIsBusy())
+    if (PracticeIsBusy(zone))
     {
         SendClientMessage(playerid, COLOR_FADE3, "Espera a que termine la práctica para modificar el puesto.");
         return false;
     }
-    if (PracticeConfigurationEditing() && PracticeEditorOwner != playerid)
+    if (PracticeConfigurationEditing(zone) && PracticeEditorOwner[zone] != playerid)
     {
         SendClientMessage(playerid, COLOR_FADE3, "Otro administrador está editando el puesto.");
         return false;
@@ -92,10 +103,10 @@ stock PracticeHidePreview(playerid)
     return 1;
 }
 
-stock PracticeHideAllPreviews()
+stock PracticeHideAllPreviews(zone)
 {
     for (new playerid = 0; playerid < MAX_PLAYERS; playerid++)
-        if (PracticePreviewActive[playerid] || PracticeSetupView[playerid]) PracticeHidePreview(playerid);
+        if (PracticeSelectedZone[playerid] == zone && (PracticePreviewActive[playerid] || PracticeSetupView[playerid])) PracticeHidePreview(playerid);
     return 1;
 }
 
@@ -116,6 +127,8 @@ stock STREAMER_TAG_OBJECT:PracticeCreatePrivateObject(playerid, const point[E_PR
 
 stock bool:PracticeViewSlotCurrent(playerid, slot)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return false;
     if (!IsValidDynamic3DTextLabel(PracticePreviewLabels[playerid][slot])) return false;
     if (slot)
     {
@@ -123,50 +136,52 @@ stock bool:PracticeViewSlotCurrent(playerid, slot)
     }
     else if (!IsValidDynamicCP(PracticePreviewCheckpoint[playerid])) return false;
     for (new field = 0; field < _:E_PRACTICE_POINT; field++)
-        if (PracticeViewPoints[playerid][slot][E_PRACTICE_POINT:field] != PracticePoints[slot][E_PRACTICE_POINT:field]) return false;
+        if (PracticeViewPoints[playerid][slot][E_PRACTICE_POINT:field] != PracticePoints[zone][slot][E_PRACTICE_POINT:field]) return false;
     return true;
 }
 
 stock bool:PracticeSynchronizeView(playerid)
 {
-    if (!PracticeAdminAvailable(playerid) || PracticeIsBusy() || !PracticePoints[0][PracticePointSet]
-        || GetPlayerInterior(playerid) != PracticePoints[0][PracticePointInterior]
-        || GetPlayerVirtualWorld(playerid) != PracticePoints[0][PracticePointWorld])
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) { PracticeHidePreview(playerid); return false; }
+    if (!PracticeAdminAvailable(playerid) || PracticeIsBusy(zone) || !PracticePoints[zone][0][PracticePointSet]
+        || GetPlayerInterior(playerid) != PracticePoints[zone][0][PracticePointInterior]
+        || GetPlayerVirtualWorld(playerid) != PracticePoints[zone][0][PracticePointWorld])
     { PracticeHidePreview(playerid); return false; }
 
     for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++)
     {
         new bool:editingSlot = slot > 0 && PracticeHasDraft(playerid)
             && PracticeEditObject[playerid] != INVALID_STREAMER_ID && PracticeDraftSlot[playerid] == slot;
-        if (!PracticePoints[slot][PracticePointSet] || editingSlot)
+        if (!PracticePoints[zone][slot][PracticePointSet] || editingSlot)
         { PracticeRemoveViewSlot(playerid, slot); continue; }
         // Keep unchanged neighbours alive, including while the selected object moves.
         if (PracticeViewSlotCurrent(playerid, slot)) continue;
         PracticeRemoveViewSlot(playerid, slot);
         new label[100], name[PRACTICE_NAME_SIZE], bool:success;
-        PracticePointDisplayName(PracticePoints[slot], slot, name);
+        PracticePointDisplayName(PracticePoints[zone][slot], slot, name);
         if (slot)
         {
-            PracticePreviewObjects[playerid][slot - 1] = PracticeCreatePrivateObject(playerid, PracticePoints[slot]);
+            PracticePreviewObjects[playerid][slot - 1] = PracticeCreatePrivateObject(playerid, PracticePoints[zone][slot]);
             success = IsValidDynamicObject(PracticePreviewObjects[playerid][slot - 1]) != 0;
             format(label, sizeof(label), "%s\n%s", name,
-                PracticePoints[slot][PracticePointNoShoot] ? ("NO DISPARAR") : ("DISPARAR"));
+                PracticePoints[zone][slot][PracticePointNoShoot] ? ("NO DISPARAR") : ("DISPARAR"));
         }
         else
         {
-            PracticePreviewCheckpoint[playerid] = CreateDynamicCP(PracticePoints[0][PracticePointX],
-                PracticePoints[0][PracticePointY], PracticePoints[0][PracticePointZ], PRACTICE_START_RADIUS,
-                PracticePoints[0][PracticePointWorld], PracticePoints[0][PracticePointInterior], playerid, 200.0);
+            PracticePreviewCheckpoint[playerid] = CreateDynamicCP(PracticePoints[zone][0][PracticePointX],
+                PracticePoints[zone][0][PracticePointY], PracticePoints[zone][0][PracticePointZ], PRACTICE_START_RADIUS,
+                PracticePoints[zone][0][PracticePointWorld], PracticePoints[zone][0][PracticePointInterior], playerid, 200.0);
             success = IsValidDynamicCP(PracticePreviewCheckpoint[playerid]) != 0;
             format(label, sizeof(label), "INICIO DE PRÁCTICA");
         }
         if (success)
         {
             PracticePreviewLabels[playerid][slot] = CreateDynamic3DTextLabel(label,
-                !slot ? 0xFFFF66FF : (PracticePoints[slot][PracticePointNoShoot] ? 0x66BFFFFF : 0xFF7777FF),
-                PracticePoints[slot][PracticePointX], PracticePoints[slot][PracticePointY], PracticePoints[slot][PracticePointZ] + 1.4,
+                !slot ? 0xFFFF66FF : (PracticePoints[zone][slot][PracticePointNoShoot] ? 0x66BFFFFF : 0xFF7777FF),
+                PracticePoints[zone][slot][PracticePointX], PracticePoints[zone][slot][PracticePointY], PracticePoints[zone][slot][PracticePointZ] + 1.4,
                 60.0, INVALID_PLAYER_ID, INVALID_VEHICLE_ID, 0,
-                PracticePoints[slot][PracticePointWorld], PracticePoints[slot][PracticePointInterior], playerid);
+                PracticePoints[zone][slot][PracticePointWorld], PracticePoints[zone][slot][PracticePointInterior], playerid);
             success = IsValidDynamic3DTextLabel(PracticePreviewLabels[playerid][slot]) != 0;
         }
         if (!success)
@@ -175,7 +190,7 @@ stock bool:PracticeSynchronizeView(playerid)
             SendClientMessage(playerid, COLOR_FADE3, "No se pudieron mostrar los blancos. Vuelve a intentarlo.");
             return false;
         }
-        PracticeViewPoints[playerid][slot] = PracticePoints[slot];
+        PracticeViewPoints[playerid][slot] = PracticePoints[zone][slot];
     }
     Streamer_Update(playerid);
     return true;
@@ -222,15 +237,19 @@ stock PracticeRepairPreviews()
 
 stock bool:PracticeInSetupRange(playerid)
 {
-    return IsPlayerInRangeOfPoint(playerid, PRACTICE_MAX_DISTANCE, PracticePoints[0][PracticePointX],
-        PracticePoints[0][PracticePointY], PracticePoints[0][PracticePointZ]) != 0;
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return false;
+    return IsPlayerInRangeOfPoint(playerid, PRACTICE_MAX_DISTANCE, PracticePoints[zone][0][PracticePointX],
+        PracticePoints[zone][0][PracticePointY], PracticePoints[zone][0][PracticePointZ]) != 0;
 }
 
 stock PracticeEnsureSetupView(playerid)
 {
-    if (!PracticePoints[0][PracticePointSet] || !PracticeAdminAvailable(playerid) || PracticeIsBusy()
-        || GetPlayerInterior(playerid) != PracticePoints[0][PracticePointInterior]
-        || GetPlayerVirtualWorld(playerid) != PracticePoints[0][PracticePointWorld] || !PracticeInSetupRange(playerid))
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
+    if (!PracticePoints[zone][0][PracticePointSet] || !PracticeAdminAvailable(playerid) || PracticeIsBusy(zone)
+        || GetPlayerInterior(playerid) != PracticePoints[zone][0][PracticePointInterior]
+        || GetPlayerVirtualWorld(playerid) != PracticePoints[zone][0][PracticePointWorld] || !PracticeInSetupRange(playerid))
         return 0;
     PracticeSetupView[playerid] = true;
     return PracticeSynchronizeView(playerid);
@@ -247,11 +266,13 @@ stock PracticeLeaveSetupView(playerid)
 
 stock PracticeShowPreview(playerid)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
     if (!PracticeMayChange(playerid) || PracticeHasDraft(playerid)) return 0;
-    if (!PracticePoints[0][PracticePointSet])
+    if (!PracticePoints[zone][0][PracticePointSet])
         return SendClientMessage(playerid, COLOR_FADE3, "Marca primero el punto de inicio desde el menú.");
-    if (GetPlayerInterior(playerid) != PracticePoints[0][PracticePointInterior]
-        || GetPlayerVirtualWorld(playerid) != PracticePoints[0][PracticePointWorld])
+    if (GetPlayerInterior(playerid) != PracticePoints[zone][0][PracticePointInterior]
+        || GetPlayerVirtualWorld(playerid) != PracticePoints[zone][0][PracticePointWorld])
         return SendClientMessage(playerid, COLOR_FADE3, "Ve al mismo interior y mundo del puesto para ver sus posiciones.");
     PracticePreviewActive[playerid] = true;
     if (!PracticeSynchronizeView(playerid)) return 0;
@@ -274,10 +295,11 @@ stock PracticeRemoveEditObject(playerid, bool:cancelNative = true)
 
 stock PracticeDiscardDraft(playerid)
 {
+    new zone = PracticeSelectedZone[playerid];
     // Clear state before native cancellation can trigger another callback.
     PracticeDraftSlot[playerid] = -1;
     PracticeDraftWizard[playerid] = PracticeDraftNew[playerid] = PracticeDraftFixTypes[playerid] = false;
-    if (PracticeEditorOwner == playerid) PracticeEditorOwner = INVALID_PLAYER_ID;
+    if (zone >= 0 && zone < PRACTICE_MAX_ZONES && PracticeEditorOwner[zone] == playerid) PracticeEditorOwner[zone] = INVALID_PLAYER_ID;
     PracticeRemoveEditObject(playerid);
     PracticeHideCatalogue(playerid);
     new empty[E_PRACTICE_POINT];
@@ -285,38 +307,54 @@ stock PracticeDiscardDraft(playerid)
     return 1;
 }
 
+// Confirmed start/target/rule/delete/reset changes converge here. Persistence
+// stays behind PracticeSaveAndNotify; native UPDATE, previews and cancelled drafts
+// never write storage. This boundary persists only the selected zone mutation.
+// The file repository serializes the registry; a future SQL repository owns its transaction.
 stock PracticeConfigurationChanged(playerid)
 {
-    PracticeRevision++;
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
+    new reason[144];
+    if (PracticeZoneEnabled[zone] && !PracticeConfigurationReady(zone, reason))
+    {
+        PracticeZoneEnabled[zone] = false;
+        SendClientMessage(playerid, COLOR_LIGHTORANGE, "La zona quedó inactiva porque su configuración está incompleta. Corrígela y vuelve a activarla.");
+    }
+    PracticeRevision[zone]++;
+    PracticeRegistryRevision++;
+    PracticeSavePending[zone] = true;
     for (new viewer = 0; viewer < MAX_PLAYERS; viewer++)
-        if (PracticePreviewActive[viewer] || PracticeSetupView[viewer]) PracticeSynchronizeView(viewer);
-    return PracticeSaveAndNotify(playerid);
+        if (PracticeSelectedZone[viewer] == zone && (PracticePreviewActive[viewer] || PracticeSetupView[viewer])) PracticeSynchronizeView(viewer);
+    return PracticeSaveAndNotify(playerid, zone);
 }
 
-stock PracticeFreeTargetSlot()
+stock PracticeFreeTargetSlot(zone)
 {
     for (new slot = 1; slot <= PRACTICE_MAX_TARGETS; slot++)
-        if (!PracticePoints[slot][PracticePointSet]) return slot;
+        if (!PracticePoints[zone][slot][PracticePointSet]) return slot;
     return -1;
 }
 
 stock PracticeBeginDraft(playerid, slot, bool:create = false)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
     if (!PracticeMayChange(playerid)) return 0;
     if (playerEditingObjectID[playerid] != -1)
     { SendClientMessage(playerid, COLOR_FADE3, "Termina primero la edición del objeto que tienes abierta."); return 0; }
-    if (slot < 1 || slot > PRACTICE_MAX_TARGETS || (!create && !PracticePoints[slot][PracticePointSet])) return 0;
-    if (!PracticePoints[0][PracticePointSet])
+    if (slot < 1 || slot > PRACTICE_MAX_TARGETS || (!create && !PracticePoints[zone][slot][PracticePointSet])) return 0;
+    if (!PracticePoints[zone][0][PracticePointSet])
     { SendClientMessage(playerid, COLOR_FADE3, "Marca primero el punto de inicio."); return 0; }
-    if (GetPlayerInterior(playerid) != PracticePoints[0][PracticePointInterior]
-        || GetPlayerVirtualWorld(playerid) != PracticePoints[0][PracticePointWorld])
+    if (GetPlayerInterior(playerid) != PracticePoints[zone][0][PracticePointInterior]
+        || GetPlayerVirtualWorld(playerid) != PracticePoints[zone][0][PracticePointWorld])
     { SendClientMessage(playerid, COLOR_FADE3, "La edición debe realizarse en el interior y mundo del puesto."); return 0; }
     if (!PracticeInSetupRange(playerid))
     { SendClientMessage(playerid, COLOR_FADE3, "Acércate al campo de tiro. Debes estar a menos de 100 metros del inicio para colocar blancos."); return 0; }
     PracticeDiscardDraft(playerid);
-    PracticeEditorOwner = playerid;
+    PracticeEditorOwner[zone] = playerid;
     PracticeDraftSlot[playerid] = slot;
-    PracticeDraftRevision[playerid] = PracticeRevision;
+    PracticeDraftRevision[playerid] = PracticeRevision[zone];
     PracticeDraftNew[playerid] = create;
     PracticeDraftWizard[playerid] = create;
     if (create)
@@ -328,26 +366,28 @@ stock PracticeBeginDraft(playerid, slot, bool:create = false)
         PracticeDraft[playerid][PracticePointX] += 3.5 * floatsin(-angle, degrees);
         PracticeDraft[playerid][PracticePointY] += 3.5 * floatcos(-angle, degrees);
         // Keep the initial editor object within the same final placement bounds.
-        if (!PracticeTargetDistanceValid(PracticePoints[0], PracticeDraft[playerid]))
+        if (!PracticeTargetDistanceValid(PracticePoints[zone][0], PracticeDraft[playerid]))
         {
             GetPlayerPos(playerid, PracticeDraft[playerid][PracticePointX], PracticeDraft[playerid][PracticePointY], PracticeDraft[playerid][PracticePointZ]);
-            if (!PracticeTargetDistanceValid(PracticePoints[0], PracticeDraft[playerid]))
+            if (!PracticeTargetDistanceValid(PracticePoints[zone][0], PracticeDraft[playerid]))
             {
-                PracticeDraft[playerid][PracticePointX] = PracticePoints[0][PracticePointX] + 3.5 * floatsin(-angle, degrees);
-                PracticeDraft[playerid][PracticePointY] = PracticePoints[0][PracticePointY] + 3.5 * floatcos(-angle, degrees);
-                PracticeDraft[playerid][PracticePointZ] = PracticePoints[0][PracticePointZ];
+                PracticeDraft[playerid][PracticePointX] = PracticePoints[zone][0][PracticePointX] + 3.5 * floatsin(-angle, degrees);
+                PracticeDraft[playerid][PracticePointY] = PracticePoints[zone][0][PracticePointY] + 3.5 * floatcos(-angle, degrees);
+                PracticeDraft[playerid][PracticePointZ] = PracticePoints[zone][0][PracticePointZ];
             }
         }
     }
-    else PracticeDraft[playerid] = PracticePoints[slot];
+    else PracticeDraft[playerid] = PracticePoints[zone][slot];
     PracticeEnsureSetupView(playerid);
     return 1;
 }
 
 stock bool:PracticeDraftCurrent(playerid)
 {
-    return PracticeHasDraft(playerid) && PracticeAdminAvailable(playerid) && !PracticeIsBusy()
-        && PracticeDraftRevision[playerid] == PracticeRevision
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return false;
+    return PracticeHasDraft(playerid) && PracticeAdminAvailable(playerid) && !PracticeIsBusy(zone)
+        && PracticeDraftRevision[playerid] == PracticeRevision[zone]
         && GetPlayerInterior(playerid) == PracticeDraft[playerid][PracticePointInterior]
         && GetPlayerVirtualWorld(playerid) == PracticeDraft[playerid][PracticePointWorld]
         // Start capture may create or relocate the station anywhere. The radius
@@ -357,6 +397,8 @@ stock bool:PracticeDraftCurrent(playerid)
 
 stock PracticeCommitDraft(playerid)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
     if (!PracticeDraftCurrent(playerid))
     {
         PracticeDiscardDraft(playerid);
@@ -365,11 +407,11 @@ stock PracticeCommitDraft(playerid)
     new slot = PracticeDraftSlot[playerid];
     if (slot < 1 || !PracticePointValid(PracticeDraft[playerid])
         || PracticeModelIndex(PracticeDraft[playerid][PracticePointModel]) < 0
-        || !PracticeSameDimension(PracticePoints[0], PracticeDraft[playerid])
-        || !PracticeTargetDistanceValid(PracticePoints[0], PracticeDraft[playerid]))
+        || !PracticeSameDimension(PracticePoints[zone][0], PracticeDraft[playerid])
+        || !PracticeTargetDistanceValid(PracticePoints[zone][0], PracticeDraft[playerid]))
         return PracticeShowEditError(playerid);
-    PracticePoints[slot] = PracticeDraft[playerid];
-    if (PracticeDraftFixTypes[playerid]) PracticeRules[PracticeRandomTypes] = 0;
+    PracticePoints[zone][slot] = PracticeDraft[playerid];
+    if (PracticeDraftFixTypes[playerid]) PracticeRules[zone][PracticeRandomTypes] = 0;
     PracticeDiscardDraft(playerid);
     PracticeConfigurationChanged(playerid);
     return PracticeShowTargets(playerid);
@@ -411,6 +453,8 @@ stock Float:PracticeNormalizeRotation(Float:angle)
 stock PracticeHandleObjectEdit(playerid, STREAMER_TAG_OBJECT:objectid, response, Float:x, Float:y, Float:z,
     Float:rx, Float:ry, Float:rz)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
     if (objectid == INVALID_STREAMER_ID || objectid != PracticeEditObject[playerid]) return 0;
     if (!PracticeDraftCurrent(playerid))
     {
@@ -436,7 +480,7 @@ stock PracticeHandleObjectEdit(playerid, STREAMER_TAG_OBJECT:objectid, response,
     candidate[PracticePointRotX] = PracticeNormalizeRotation(rx);
     candidate[PracticePointRotY] = PracticeNormalizeRotation(ry);
     candidate[PracticePointAngle] = PracticeNormalizeRotation(rz);
-    if (!PracticePointValid(candidate) || !PracticeTargetDistanceValid(PracticePoints[0], candidate))
+    if (!PracticePointValid(candidate) || !PracticeTargetDistanceValid(PracticePoints[zone][0], candidate))
         return PracticeShowEditError(playerid);
     PracticeDraft[playerid] = candidate;
     return PracticeCommitDraft(playerid);
@@ -446,12 +490,13 @@ stock PracticeEditorTick()
 {
     for (new playerid = 0; playerid < MAX_PLAYERS; playerid++)
     {
-        if (PracticeHasDraft(playerid) && (!PracticeDraftCurrent(playerid)
+        new zone = PracticeSelectedZone[playerid];
+        if (PracticeDraftSlot[playerid] >= 0 && (!PracticeDraftCurrent(playerid)
             || (PracticeEditObject[playerid] != INVALID_STREAMER_ID && !IsValidDynamicObject(PracticeEditObject[playerid]))))
             PracticeResetUI(playerid);
-        if ((PracticePreviewActive[playerid] || PracticeSetupView[playerid]) && (!PracticeAdminAvailable(playerid) || PracticeIsBusy()
-            || GetPlayerInterior(playerid) != PracticePoints[0][PracticePointInterior]
-            || GetPlayerVirtualWorld(playerid) != PracticePoints[0][PracticePointWorld]
+        if ((PracticePreviewActive[playerid] || PracticeSetupView[playerid]) && (!PracticeSelectedZoneValid(playerid) || !PracticeAdminAvailable(playerid) || PracticeIsBusy(zone)
+            || GetPlayerInterior(playerid) != PracticePoints[zone][0][PracticePointInterior]
+            || GetPlayerVirtualWorld(playerid) != PracticePoints[zone][0][PracticePointWorld]
             || (PracticeSetupView[playerid] && !PracticeInSetupRange(playerid)))) PracticeHidePreview(playerid);
     }
     return 1;

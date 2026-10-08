@@ -3,6 +3,9 @@
 #endif
 #define SP_CONFIG_INCLUDED
 
+#if !defined PRACTICE_MAX_ZONES
+    #define PRACTICE_MAX_ZONES (64)
+#endif
 #define PRACTICE_MAX_TARGETS (10)
 #define PRACTICE_START_RADIUS (1.5)
 #define PRACTICE_ACTIVE_RADIUS (3.0)
@@ -44,13 +47,17 @@ enum E_PRACTICE_RULE
     PracticeRandomTypes
 }
 
-// Slot 0 is the start; slots 1..10 are optional target positions.
-// Configuration is separate from the single station's runtime session.
-new PracticePoints[PRACTICE_MAX_TARGETS + 1][E_PRACTICE_POINT];
+// Slot 0 is the selected zone's start; slots 1..10 are its targets.
+// TODO(SP-ACCESS/HISTORY): versioned group/faction whitelists and history policy
+// require host identity adapters. Current zones are public and training is transient.
+// The ten-target limit is per zone. Registry indices are not persistent IDs.
+new PracticePoints[PRACTICE_MAX_ZONES][PRACTICE_MAX_TARGETS + 1][E_PRACTICE_POINT];
 // Preparation is whole seconds. Exposure and interval are milliseconds in 100 ms steps.
-new PracticeRules[E_PRACTICE_RULE] = {PRACTICE_WEAPON_DEFAULT, 1, 3, 5000, 1000, 0, 0, 0};
-new PracticeRevision;
-new bool:PracticeSavePending;
+new PracticeRules[PRACTICE_MAX_ZONES][E_PRACTICE_RULE];
+new const PracticeDefaultRules[E_PRACTICE_RULE] = {PRACTICE_WEAPON_DEFAULT, 1, 3, 5000, 1000, 0, 0, 0};
+// Runtime menu/draft revision only; it is not a durable database version.
+new PracticeRevision[PRACTICE_MAX_ZONES];
+new bool:PracticeSavePending[PRACTICE_MAX_ZONES];
 
 enum E_PRACTICE_MODEL { PracticeModelID, PracticeModelName[24] }
 new const PracticeModels[][E_PRACTICE_MODEL] = {
@@ -143,11 +150,11 @@ stock PracticeFormatWeapons(mask, text[], size = sizeof(text))
     return 1;
 }
 
-stock PracticeCountTargets()
+stock PracticeCountTargets(zone)
 {
     new count;
     for (new slot = 1; slot <= PRACTICE_MAX_TARGETS; slot++)
-        if (PracticePoints[slot][PracticePointSet]) count++;
+        if (PracticePoints[zone][slot][PracticePointSet]) count++;
     return count;
 }
 
@@ -163,17 +170,17 @@ stock bool:PracticeRulesValid(const rules[E_PRACTICE_RULE])
         && (rules[PracticeRandomTypes] == 0 || rules[PracticeRandomTypes] == 1);
 }
 
-stock PracticeCountNoShootTargets()
+stock PracticeCountNoShootTargets(zone)
 {
     new count;
     for (new slot = 1; slot <= PRACTICE_MAX_TARGETS; slot++)
-        if (PracticePoints[slot][PracticePointSet] && PracticePoints[slot][PracticePointNoShoot]) count++;
+        if (PracticePoints[zone][slot][PracticePointSet] && PracticePoints[zone][slot][PracticePointNoShoot]) count++;
     return count;
 }
 
-stock PracticeCountShootTargets()
+stock PracticeCountShootTargets(zone)
 {
-    return PracticeCountTargets() - PracticeCountNoShootTargets();
+    return PracticeCountTargets(zone) - PracticeCountNoShootTargets(zone);
 }
 
 stock bool:PracticePointValid(const point[E_PRACTICE_POINT])
@@ -209,39 +216,39 @@ stock bool:PracticeTargetDistanceValid(const start[E_PRACTICE_POINT], const targ
         && distanceSquared <= PRACTICE_MAX_DISTANCE * PRACTICE_MAX_DISTANCE;
 }
 
-stock bool:PracticeConfigurationReady(reason[], size = sizeof reason)
+stock bool:PracticeConfigurationReady(zone, reason[], size = sizeof reason)
 {
-    if (!PracticePoints[0][PracticePointSet])
+    if (!PracticePoints[zone][0][PracticePointSet])
         format(reason, size, "Falta marcar el inicio. Abre Punto de inicio en /practicaconfig.");
-    else if (!PracticePointValid(PracticePoints[0]) || PracticePoints[0][PracticePointNoShoot])
+    else if (!PracticePointValid(PracticePoints[zone][0]) || PracticePoints[zone][0][PracticePointNoShoot])
         format(reason, size, "La posición de inicio no es válida. Vuelve a marcarla.");
-    else if (!PracticeRulesValid(PracticeRules))
+    else if (!PracticeRulesValid(PracticeRules[zone]))
         format(reason, size, "La configuración de armas, puntos o tiempos no es válida.");
-    else if (!PracticeCountTargets())
+    else if (!PracticeCountTargets(zone))
         format(reason, size, "Falta un blanco. Abre Blancos en /practicaconfig y elige Añadir.");
     else
     {
-        if (PracticeCountShootTargets() < 1)
+        if (PracticeCountShootTargets(zone) < 1)
         {
             format(reason, size, "Falta un blanco de tiro. Revisa Comportamiento en el menú de Blancos.");
             return false;
         }
-        if (PracticeRules[PracticePassPoints] > PracticeCountShootTargets())
+        if (PracticeRules[zone][PracticePassPoints] > PracticeCountShootTargets(zone))
         {
             format(reason, size, "Los puntos requeridos superan los blancos de tiro. Revisa Reglas del ejercicio.");
             return false;
         }
-        if (PracticeRules[PracticeMaxErrors] > PracticeCountNoShootTargets())
+        if (PracticeRules[zone][PracticeMaxErrors] > PracticeCountNoShootTargets(zone))
         {
             format(reason, size, "Los errores permitidos superan los blancos protegidos. Revisa Reglas del ejercicio.");
             return false;
         }
         for (new slot = 1; slot <= PRACTICE_MAX_TARGETS; slot++)
         {
-            if (!PracticePoints[slot][PracticePointSet]) continue;
-            if (!PracticePointValid(PracticePoints[slot]) || PracticeModelIndex(PracticePoints[slot][PracticePointModel]) < 0
-                || !PracticeSameDimension(PracticePoints[0], PracticePoints[slot])
-                || !PracticeTargetDistanceValid(PracticePoints[0], PracticePoints[slot]))
+            if (!PracticePoints[zone][slot][PracticePointSet]) continue;
+            if (!PracticePointValid(PracticePoints[zone][slot]) || PracticeModelIndex(PracticePoints[zone][slot][PracticePointModel]) < 0
+                || !PracticeSameDimension(PracticePoints[zone][0], PracticePoints[zone][slot])
+                || !PracticeTargetDistanceValid(PracticePoints[zone][0], PracticePoints[zone][slot]))
             {
                 format(reason, size, "Revisa el blanco %d: mismo interior/mundo y entre 3 y 100 metros del inicio.", slot);
                 return false;

@@ -1,12 +1,11 @@
 # Shooting Practice MVP - Implementation Handoff
 
-Current local state (2026-10-07): the server was stopped at the user's request. The latest compiled and tested source will load on the next requested start.
-
-Updated: 2026-10-07. Dialog configuration, native editing, private preview, per-target models,
-persistence, multiple permitted weapons, numeric help, detailed results, named departure,
-on-screen countdown, conditional start actions, placement-radius checks, persistent editing references,
-roleplay/audio and mixed shoot/no-shoot exercises are implemented. Latest feedback adds preview-shot repair,
-compact results with white details and only the verdict word colored, minimum one-second cue spacing and fractional exposure/interval timing.
+Updated: 2026-10-08. Multiple-zone administration, independent sessions/editing, stable IDs,
+proximity selection and v7 file persistence/migration are implemented. Existing model editing,
+private previews, mixed shoot/no-shoot scoring, permitted weapons, decimal timing and results remain.
+This increment was compiled and tested on an isolated Linux SA-MP 0.3.DL-R1 runtime. It does not deploy
+or restart a playable server. Account/faction adapters, restricted access, SQL and recorded history
+are still future integrations, described in the data model linked below.
 
 - Fork: https://github.com/SouthViking/samp-codigo-abierto
 - Branch: feat/shooting-practice-mvp
@@ -14,11 +13,63 @@ compact results with white details and only the verdict word colored, minimum on
 - Original upstream base: e7f84d1294a523fe2aa7c0e5f1c6ae1e8d87f907.
 - Public handoff; internal does not mean private.
 - [Configuration/testing guide](shooting-practice-testing.md) and [Windows server](local-windows-server.md).
+- [Administrative data model proposal](shooting-practice-data-model.md) and [draft SQL](sql/shooting-practice.sql).
 
-## Contract
+## Administrative system requirements (2026-10-08)
 
-One station, one participant, 1-10 individually configured targets. Each position appears once,
-one at a time. Future faction/civilian/private ranges can reuse it without dependencies on those systems.
+The complete design below includes future access/history requirements. The current increment implements
+the registry, administration, independent ownership and file persistence. All current zones are public
+and /practica is unrecorded. Do not describe access lists, supervision or SQL as implemented.
+
+- Administrators create, select, configure and delete independent named zones. Each zone has a stable
+  ID, start/interior/world, up to ten targets, its own rules and its own practice-access grants.
+  A configurable registry capacity bounds server resources; the design must not assume one zone.
+- Only administrators can configure zones. /practicaconfig opens their zone list; /practicaconfig <id>
+  opens that zone's configuration directly. Both paths and menu responses enforce administrative access.
+  The list includes zone ID/name, operational state, access mode and evaluation availability.
+- Practice has exactly two access modes: open, or restricted to one or more groups/factions.
+  Restricted access requires at least one matching whitelist entry from current host membership.
+  There are no individual-user practice grants. Open mode stores an empty whitelist; restricted mode
+  with no grants or unresolved identity never becomes public.
+- Administrative authority and practice access are separate. Being a permitted trainee or member
+  of a permitted faction does not grant zone configuration rights. RCON is the current test policy.
+- One participant and one editing owner per zone; one active attempt per player. Different zones
+  may run independently. Locks, save state, UI revisions, previews and cleanup must belong to a zone.
+  Edits/deletion of an occupied zone are blocked, while other zones remain usable.
+- /practica resolves an eligible nearby zone in the player's interior/world. If several match, use
+  explicit selection. Administrative menus retain the selected zone ID and revalidate it on responses.
+- Proposed session purposes: /practica is unrecorded training; /evaluaciontiro is a recorded evaluation.
+  Both share the same engine, zone rules, access checks and occupancy. Purpose is fixed before start;
+  a finished training round cannot be promoted into an evaluation after its result is known.
+- Each immutable zone version has an administrator-controlled history_policy: none (default) allows
+  training only; evaluations_only also allows recorded evaluations. This policy is independent of
+  open/restricted access. Turning it off prevents new evaluations and preserves existing history.
+  Passed, failed and interrupted evaluations all remain visible to authorized supervisors.
+- Supervision is separate from configuration and participation. Individual assignments explicitly
+  cover the whole zone; group/faction rules use a minimum rank or exact selected ranks and cover only
+  attempts admitted through that group. One current rule per zone/group; can_review additionally
+  permits observations within the same scope. Permissions use current host identity/membership/rank,
+  are rechecked per attempt/query/write, and never alter automatic scores. Numeric rank IDs do not
+  encode hierarchy. Rank bridges/rules/selections are included in the SQL proposal, not runtime code.
+  Instructor/FTO roles and different rank thresholds for reading versus annotating are later extensions.
+- Configuration, access grants and future results reference stable zone/account IDs. SA-MP playerid,
+  array slots, object handles and GetTickCount are temporary values and cannot identify stored users
+  or zones. Deletion must invalidate menus, drafts and runtime lookups before an array slot is reused.
+
+This repository includes a_mysql and a configured MySQL plugin, but has no account login, persistent
+player account IDs, user-group/faction membership service, database connection or application queries.
+GetPlayerRoleplayName only formats the connected nickname; it is not an identity provider. The zone
+registry, editor and access-policy evaluation can be developed here. Real account/group/faction grants
+need adapters to the host server's existing identity and membership services; development fixtures
+must remain explicitly separate from production authorization.
+
+## Current implementation
+
+A bounded registry supports up to PRACTICE_MAX_ZONES (64 by default) independent zones, including
+archived records. Each has a stable positive ID, name, active/inactive state, start and up to ten targets.
+Array slots are private handles; IDs increase monotonically and archived IDs/slots are not recycled.
+One participant per zone and one active round per player; different zones can operate simultaneously.
+Each position appears once per round, one at a time. Faction/civilian ranges can reuse the engine.
 Results can inform an instructor's assessment; they do not certify an entire FTP.
 
 Targets store optional name (32 characters), model, independent behavior, XYZ position, XYZ rotation,
@@ -43,9 +94,18 @@ Spanish user-facing text; English implementation identifiers.
 
 ## Configuration, ownership and editing
 
-/practicaconfig is the sole setup command, requiring RCON. Old arguments only open its menu.
-Root sections: direct start capture, targets, rules, preview toggle, test/cancel-own-round and confirmed reset;
-failed saves add a retry row. Existing easyDialog dispatch and mSelection cards are reused.
+/practicaconfig requires RCON and opens a paginated zone list (ten per page), with creation and global
+save retry. /practicaconfig <id> opens a nonarchived zone directly; invalid/overflowing IDs fail.
+Names have up to 48 characters and reject whitespace-only values, controls and color codes.
+New zones start inactive. Activation requires a complete valid configuration; edits which make an
+active layout incomplete close it automatically until an administrator fixes and activates it again.
+
+The zone root offers direct start capture, targets, rules, preview toggle, eligible start/own cancellation,
+confirmed reset, rename, activation/deactivation and confirmed archive. Archiving removes the zone
+from lists/usage but retains its ID/configuration in storage; there is no restore/purge UI this increment.
+Occupied zones cannot be edited, disabled, reset or archived. Other zones remain available.
+Failed saves add a retry row; the zone list exposes pending writes even after an archive.
+Existing easyDialog dispatch and mSelection cards are reused. Volver/Zonas returns to the registry.
 
 Iniciar práctica appears only when PracticeStartReady succeeds for this player: completed layout,
 alive/on-foot access, start proximity, same dimension, permitted held weapon, no participant or editor.
@@ -73,9 +133,11 @@ by Save or EDIT_RESPONSE_FINAL; cancel discards all pending fields. Duplicates f
 changing their source. Choosing behavior sets fixed distribution on commit; administrators may then
 enable random distribution explicitly. Model/name/position-only edits preserve distribution.
 
-One writer owns the station draft. Other admins can inspect but cannot mutate. Practice starts wait
-for commit/discard. Mutation requires alive/on-foot RCON state and is blocked during rounds.
-Configuration revisions reject stale row, deletion and reset responses.
+Each zone has one writer and its own revision. Other admins can inspect it but cannot mutate it while
+owned; its practice starts wait for commit/discard. Mutation requires alive/on-foot RCON state and is
+blocked only by that zone's round/editor. Other zones can be configured concurrently, including while
+another zone is occupied. Menus capture stable selected ID and zone revision; zone lists capture
+registry revision and stable row IDs. Unrelated changes do not invalidate a zone's draft/menu.
 
 The native editor owns a private temporary object, separate from saved records and session objects.
 FINAL coordinates are authoritative. UPDATE only previews on the client. Finite values, distance and
@@ -86,7 +148,8 @@ or opening the wizard. The initial new-object position is kept inside the same 3
 Every native FINAL rechecks finite coordinates, distance and dimension. Leaving the 100 m editing
 radius also releases the draft and references.
 Death, disconnect, vehicles, dimension changes, lost RCON or lost temporary objects release resources.
-The base command resumes pending menu edits.
+The direct ID command resumes pending edits for the same zone. Switching zones discards the old draft;
+commands cannot replace an active native editor until confirmation/cancellation.
 
 General and practice editors mutually exclude via existing playerEditingObjectID and SP_ObjectEditor
 PVar. No general object records are reused. Vendored ShowModelSelectionMenuEx now declares read-only
@@ -100,8 +163,8 @@ around and reopen the root to hide it. No scoring, countdown or sounds.
 
 Each viewer owns independent handles. Hide/death/disconnect/vehicles/dimension changes/lost RCON clean
 them. Partial allocation failures roll back everything. Confirmed changes synchronize affected slots.
-Unchanged objects keep their handles and remain visible. Successful practice starts remove all views
-before countdown. Only owned dynamic checkpoints are used,
+Unchanged objects keep their handles and remain visible. Successful practice starts remove views
+of that zone and any preview owned by its participant. Other zones retain their previews. Only owned dynamic checkpoints are used,
 never SetPlayerCheckpoint or DisablePlayerCheckpoint.
 
 Opening Blancos also enables a private automatic setup view through catalog, draft and native editing.
@@ -121,7 +184,12 @@ model invulnerability flag. Melee, explosions and rendered replacement timing ne
 
 ## Runtime, randomization and scoring
 
-/practica starts; /practica cancelar interrupts the caller's attempt; /practica ayuda explains rules.
+/practica resolves active starts within 1.5 m in the current interior/world. One candidate starts
+directly; overlapping starts open explicit selection (also available to nonadministrators). Selection
+captures IDs and rechecks proximity, availability, occupancy and weapon on response. /practica <id>
+selects explicitly and still requires being at that zone's start. /practica cancelar interrupts only
+the caller's active zone; /practica ayuda explains the active/nearby zone's rules without starting.
+Public selection never grants administrative access or changes its zone binding.
 Any non-NPC can currently practice; PracticeCanUseStation is the future permission integration point.
 
 IDLE -> COUNTDOWN -> TARGET -> INTERVAL -> TARGET -> ... -> IDLE.
@@ -185,77 +253,153 @@ Textdraw allocation failure preserves the audible countdown. The plain text avoi
 
 ## Storage and migration
 
-File: scriptfiles/shooting_practice.cfg relative to server working directory; the local launcher uses
-.local-server/scriptfiles/shooting_practice.cfg. New saves use SARP_PRACTICE 6:
+File: scriptfiles/shooting_practice.cfg relative to server working directory. The Windows launcher
+uses .local-server/scriptfiles/shooting_practice.cfg. New saves use SARP_PRACTICE 7:
 
-- Rules line: weaponMask points preparation exposure interval maxErrors randomOrder randomDistribution.
-- Preparation stays in whole seconds. Exposure and interval are integer milliseconds, in 100 ms steps.
-- weaponMask uses bit (weapon ID - 22); default Desert Eagle is 4, all thirteen weapons is 8191.
-  Zero, negative masks and unsupported bits are rejected.
-- Eleven point records, start then ten slots: marked x y z rotZ interior world noShoot model rotX rotY.
-- Each point is followed by a NAME line containing the optional name.
-- END terminates the file.
+```text
+SARP_PRACTICE 7
+REGISTRY <nextPositiveId> <recordCount>
+ZONE <id> <enabled:0|1> <archived:0|1>
+ZONE_NAME <name>
+<weaponMask> <points> <preparation> <exposureMs> <intervalMs> <maxErrors> <randomOrder> <randomDistribution>
+<marked> <x> <y> <z> <rotZ> <interior> <world> <noShoot> <model> <rotX> <rotY>
+NAME <optional point name>
+... (eleven points, start then ten slots)
+END_ZONE
+... (one record for each zone, including archived zones)
+END
+```
 
-Flags are 0/1. Start/unmarked points use model 0 and noShoot 0; marked models must be in the catalog.
-Names reject controls, line breaks and color braces. Counts are derived from marked slots.
+Preparation is whole seconds; exposure and interval are integer milliseconds in 100 ms steps.
+Weapon bits use (weapon ID - 22): default Desert Eagle = 4, all supported weapons = 8191.
+Flags are 0/1. IDs must be unique/positive/below nextPositiveId; active archived records are invalid.
+Unmarked/start points have model 0 and noShoot 0. Marked models must be in the catalog; names reject
+controls and color braces. Partial disabled configurations may be saved, but cannot start.
 
-V1 retains original rules/positions and defaults to all shoot. V2 materializes its quota on highest
-marked slots while preserving preferences/incomplete layouts. V3 retains explicit behavior.
-V1-V3 targets get model 1271, zero X/Y rotation and automatic names; angle remains Z rotation.
-V4 retains full transforms, models, names and behaviors. V1-V4 convert their single weapon ID into
-exactly one permitted bit. V5 retains the weapon mask. V1-V5 exposure/interval seconds are validated
-before multiplication and converted to milliseconds exactly once. Next save upgrades to v6.
-Loading never rewrites the original.
+Formats 1-6 migrate into public zone #1, Campo de tiro, preserving existing layout/rules/model names
+and transforms. A playable legacy layout stays active; an incomplete one loads inactive. V1-V4
+convert their single weapon into one mask bit; V1-V3 use model 1271 and default X/Y rotation/name.
+V2 materializes its old protected quota on highest marked slots. V5 keeps the mask. V1-V5 exposure
+and interval convert validated seconds to milliseconds once; V6 retains exact milliseconds.
+Loading does not rewrite the source; the next confirmed edit/save upgrades the whole registry to v7.
+An empty installation starts with no zones; administrators create the first one explicitly.
 
-Temporary records are validated before load applies anything. Invalid/unsupported/truncated files never
-partially replace the layout. Failed writes keep memory usable and pending-save/retry visible.
-Writes remain nontransactional: retain backups of valuable layouts. Older shooting_practice_points.inc
-exports are not imported. Runtime data, credentials, logs and binaries remain ignored.
+Loading validates all temporary records before publication and refuses reload while any zone is
+occupied or has a draft. Loading clears owned UI, increments revisions and rebinds selected stable IDs.
+An active incomplete v7 record is safely closed and exposes pending repair. Corrupt/unsupported,
+duplicate-ID or truncated files cannot partially replace live records.
+
+Saving writes shooting_practice.cfg.tmp and validates it before touching the primary. It preserves a
+validated shooting_practice.cfg.bak before copying the staged file, then validates the new primary.
+SA-MP lacks a native atomic rename; this is validated staging plus recovery, not a SQL transaction.
+Startup can recover the validated backup after a torn primary, or the initial stage if the primary is
+missing, and exposes repair/retry in the list. A valid primary wins over abandoned staging.
+If all available files are invalid, writes/creation are blocked to preserve evidence for manual repair.
+Failed saves keep changes in memory and show retry; restarting before successful save can lose them.
+Keep external backups of valuable layouts. Archived records consume registry capacity by design.
+Runtime state, attempts, credentials, logs and binaries remain ignored. Old include exports are not imported.
+
+## Persistence and future integration boundaries
+
+The supported prototype backend is the versioned local configuration file described above. Confirmed
+configuration changes survive restart. Session state and reports live only in memory; completed and
+interrupted attempts are not saved. There are no SQL stubs returning fake success or assumed schemas.
+
+Confirmed changes follow PracticeConfigurationChanged -> PracticeSaveAndNotify ->
+PracticeSaveConfiguration. Start, target creation/edit/duplicate/delete, rules and reset already use
+this path. Keep persistence at that boundary rather than adding database calls to individual dialogs,
+native editor UPDATE callbacks, previews, weapon-shot callbacks or timer ticks.
+
+Search the production module for TODO(SP- to locate the planned boundaries:
+
+| Marker | Location | Integration work |
+| --- | --- | --- |
+| SP-ACCESS/HISTORY | config.inc | Versioned zone access grants and history policy, once host identity adapters exist. |
+| SP-ADMIN | registry.inc, PracticeIsAdministrator | Replace RCON with the host administrative role; retain separate training/supervision grants. |
+| SP-DB-ID | registry.inc | Map persistent SQL BIGINT identifiers without truncation into runtime handles. |
+| SP-ACCESS | session.inc, PracticeCanUseStation | Open mode or a zone-specific group/faction whitelist checked against cached host membership. |
+| SP-RECORDING | session.inc, PracticeStart | Select training/evaluation purpose and freeze zone history policy; gate evaluations on durable start registration. |
+| SP-DB-SAVE/LOAD | storage.inc, repository boundary | Replace validated file persistence with host-connection transactions and immutable configuration versions/identity references. |
+| SP-DB-ACK | storage.inc, PracticeSaveAndNotify | Confirm committed asynchronous writes, pending/retry state per zone/revision, safe requester notification. |
+| SP-DB-IDENTITY | session.inc, PracticeStart | For recorded evaluations, capture stable subject/zone/attempt IDs, UTC start and configuration/sequence snapshot. |
+| SP-DB-RESULT | session.inc, PracticeEnd before cleanup | For evaluations only, save immutable final counters, frozen rules, completion/reason and timestamps once per attempt. |
+| SP-DB-BOOTSTRAP | hooks.inc, OnGameModeInit | Load after the host connection is ready; gate zone usage/editing until validated loading finishes. |
+| SP-DB-SHUTDOWN | hooks.inc, OnGameModeExit | Record active evaluations as incomplete and coordinate flushing before the shared connection closes. |
+
+The zone registry/ownership and legacy migration are now implemented. Restricted practice, real
+account/group/faction identities and history policy require the host adapters described in the SQL
+proposal. The file registry currently contains public zones without access grants/history settings.
+Do not invent account or faction IDs or infer authorization from display names.
+
+For a database backend, use the host gamemode's shared connection. Persist each complete zone and
+its rules/targets/grants consistently, including removals/reset. Load into temporary records and use
+the existing validators before publication. Incomplete layouts may be configured but cannot start.
+Choose one authoritative backend; automatic file/database dual writes are not part of this version.
+Queued writes do not mean success. Late load/save callbacks must not overwrite a newer zone state,
+clear a newer pending revision or notify a different player after playerid reuse. PracticeRevision
+currently protects menus within one run and is not a persistent database revision.
+
+When history is added, /practica remains unrecorded and creates no history rows. /evaluaciontiro requires
+an eligible zone version, stable identity and confirmed durable start registration before countdown;
+unavailable storage never silently downgrades an evaluation to training. Capture identity, a unique
+attempt ID, UTC timestamps and a configuration/sequence snapshot for evaluated sessions at start.
+PracticeEnd already copies final counters before cleanup and is the common path for
+completion, cancellation, death, disconnect and other interruptions. Store the completion flag and
+reason; only completed attempts receive an approved/failed verdict. Derive net points and precision
+with the same rules as the existing report; zero shots have unavailable precision. An immutable
+snapshot must remain usable after disconnect, even when notify is false. Record once per attempt with
+an idempotent key; database errors must not hold occupancy or prevent normal cleanup/results.
+If closing persistence fails, keep a durable final snapshot for retry and explicitly report pending
+or failed storage; displaying a local result does not confirm that the evaluation was saved.
+The start row alone cannot recover final counters after a crash. Failed and cancelled evaluations
+must be retained alongside passed ones; supervisors see stored evaluations, not unrecorded training.
+Game-mode shutdown currently performs cleanup without a final report and needs its own incomplete
+attempt capture when history is implemented. Database-backed history remains future work.
+
+PracticeIsAdministrator centralizes the current RCON policy for commands, zone list/dialogs and
+ongoing editor/view checks. PracticeAdminAvailable additionally requires being alive/on foot.
+Connect the central check to the host's cached administrative role when integrating it. Participation and
+future supervision grants stay separate from configuration authority.
 
 ## File boundaries
 
 | File under gamemodes/features/shooting_practice/ | Responsibility |
 | --- | --- |
 | config.inc | Records, model catalog, rules, readiness. |
-| storage.inc | Serialization, migration, save status. |
+| registry.inc | Stable IDs, zone metadata, player selection, capacity. |
+| storage.inc | Whole-registry serialization, migration, validation, recovery and save status. |
 | sequence.inc | Frozen positions, pairs and randomization. |
 | editor.inc | Draft ownership, private preview, native editor lifecycle. |
-| setup.inc | Single command, dialogs, catalog, confirmations/navigation. |
-| session.inc | Player command, target lifecycle, scoring. |
+| setup.inc | Selected-zone dialogs, catalog, confirmations and revision guards. |
+| zone_setup.inc | Administrative registry commands/lists/lifecycle and public proximity selection. |
+| session.inc | Per-zone sessions, player lookup, target lifecycle and scoring. |
 | presentation.inc | Materials, audio, countdown overlay, roleplay, help/results. |
 | hooks.inc | YSI callbacks, 50 ms pulse, 500 ms editor maintenance, shots, cleanup. |
 | header.inc | Module include order. |
 
 ## Validation and scope
 
-- 606 assertions, 0 failures on isolated Windows SA-MP 0.3.DL-R1 with sscanf 2.13.1; normal shutdown.
-  Production logic, VM and file I/O are real; player/UI/streamer/audio adapters are simulated.
-  Coverage: dialog flows, drafts, native confirm/cancel, stale menus, concurrent admins, private preview,
-  allocation rollback, cleanup, retry, v1-v6 migration, multiweapon selection/switching, frozen weapon
-  rules, slot-specific exhaustion, countdown resource ownership, named departure and detailed results.
-  New coverage checks conditional main actions, captured row dispatch, early/final 3D distance bounds,
-  stable neighbour handles through move/save/cancel/model selection, label names and automatic view cleanup.
-  Latest coverage checks isolated preview repairs and failures, compact reports with white base text and only the outcome word colored, cue timestamps,
-  decimal parsing/bounds/deadlines and compatible migration without overflow. Added coverage checks
-  save as the final draft row, duplicate/delete dispatch, the exact automatic departure reason,
-  literal percent signs and reduced accuracy from repeat attempts/interval shots without changing verdict rules.
-- Full SARP.pwn and tests compile with Pawn 3.10.10, warnings treated as errors. Existing global warning
-  suppressions remain. Spanish UI sources use Windows-1252, matching the legacy client; documents use UTF-8.
-- The earlier deployed build loaded seven plugins and saved layout and answered UDP at 127.0.0.1:7777.
-  The latest feedback build was deployed on 2026-10-07 after an explicit restart request. All seven
-  plugins and the practice configuration loaded, and UDP status responds at 127.0.0.1:7777.
-  The configuration SHA256 stayed unchanged. The start-capture radius fix and /irpruebas shortcut were also loaded on explicit request.
-  /irpruebas is an on-foot RCON development shortcut to XYZ 802.8580, 1674.5205, 5.2813,
-  angle 181.2324, interior/world 0. It does not modify the station configuration.
-  The subsequent result formatting, final Save row, behavior wording and cancellation wording changes
-  are compiled and tested but pending a requested restart. Restart only on explicit user request.
-- Original practice was confirmed by the user in-game. New dialogs/cursor, cards, model collision,
-  private visibility, countdown placement and sounds still need client checks. Tests do not execute the YSI dispatcher,
-  actual rendering or network shot reporting, native model breakage or the live timer dispatcher.
+- 745 assertions, 0 failures on isolated Linux SA-MP 0.3.DL-R1 with sscanf 2.13.1; normal exit.
+  Deterministic adapters simulate player/UI/streamer/audio; Pawn VM, parsers and file I/O are real.
+  Existing scoring/editor/timing/report regressions still pass. Added coverage includes registry
+  creation/naming/activation/archive, pagination/stale stable IDs, capacity/overflow, RCON loss,
+  public proximity/overlap choice, two simultaneous rounds, isolated shots/counters/countdowns,
+  independent editing/previews, complete v7 persistence, migration 1-6, corrupt metadata, failed stage,
+  validated backup recovery and pending repair. Tests live in tests/shooting_practice_zones.inc.
+- Full SARP.pwn and tests compile with Pawn 3.10.10, -;+ -(+ -d3 -E. Existing gamemode warning
+  suppressions remain. Unix full compilation normalizes include separators in an ignored copy only.
+  Spanish source uses Windows-1252; documents use UTF-8. Static dialog buffers avoid enlarging the
+  gamemode's existing stack allowance.
+- No playable deployment/start/restart occurred in this increment. Prior Windows test/deployment
+  evidence remains in tests/README.md. Real mouse/dialog integration, visibility/collision, network
+  shots, sounds and live YSI/timer dispatch still need the client checks in the manual guide.
 
-Out of scope: multiple stations/concurrent rounds, faction/rank policies, history/SQL/leaderboards,
-FTP certification, weapon administration, custom assets, moving/simultaneous targets, scoring rings,
-live scoring HUD, teleportation and unrelated changes.
+Pending: real faction/group restricted access, host identities, SQL backend, history policy,
+/evaluaciontiro and authorized supervisor queries/reviews. Their normalized draft is documented,
+not applied to a database or enabled by runtime placeholders. No fake persistence acknowledgments.
+
+Later extensions: leaderboards, FTP certification, equipment administration, custom assets,
+moving/simultaneous targets within a round, scoring rings and live scoring HUD.
 
 ## Engine references
 
@@ -268,7 +412,8 @@ live scoring HUD, teleportation and unrelated changes.
 
 ## Spanish interface wording
 
-The root title is Campo de tiro; readiness and pending-save state live in the content. Dialogs use
+The registry title is Zonas de tiro; the selected-zone root is Zona #ID: Nombre. Readiness and
+pending-save state live in its content. Volver/Zonas navigates back to the registry. Dialogs use
 short titles without pipe separators or semicolons in user-facing text. Target behavior is
 Blanco de tiro (disparar) or Blanco protegido (no disparar).
 Weapon fields show names. Dialog/chat/3D-label strings use Windows-1252; the catalog back button is

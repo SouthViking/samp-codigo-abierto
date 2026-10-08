@@ -1,12 +1,13 @@
 # Shooting practice regression tests
 
-Current local state (2026-10-07): the playable server is stopped at the user's request. The latest compiled source will load on the next requested start.
+Current verification: 2026-10-08. This increment was built and tested in isolated Linux SA-MP 0.3.DL-R1. No playable deployment/start/restart occurred.
 
-The suite includes production configuration, storage, sequence, session, presentation, editor and
+The suite includes production configuration, registry, storage, sequence, session, presentation, editor and
 dialog code. shooting_practice_ui.inc exercises configuration flows; shooting_practice_refinements.inc
 covers multiweapon configuration, countdown ownership, departure and detailed feedback.
 shooting_practice_feedback.inc covers conditional actions, distance gates and stable editing references.
 shooting_practice_polish.inc covers preview-shot repair, cue spacing and fractional timing/migration.
+shooting_practice_zones.inc covers administration, public selection, independent sessions/editors, v7 registry storage and recovery.
 Player state, clock, audio,
 dialog rendering, model cards and streamer operations use deterministic adapters.
 Pawn execution, format, sscanf 2.13.1 and file I/O are real. Results are captured before the actual
@@ -25,10 +26,35 @@ treated as errors, and starts an isolated hidden server on loopback UDP 7779 for
 It requires PASS and normal shutdown. Logs remain at the printed path. The playable server's
 positions, configuration, AMX and logs are not overwritten.
 
-The tests intentionally overwrite their own scriptfiles/shooting_practice.cfg.
+The tests intentionally overwrite their own scriptfiles/shooting_practice.cfg, .tmp and .bak.
 Never run the test AMX in a live/playable server directory.
 
-## Recorded verification: 2026-10-07
+## Recorded verification: 2026-10-08
+
+**745 assertions, 0 failures** on isolated Linux SA-MP 0.3.DL-R1, sscanf 2.13.1 and crashdetect 4.22;
+normal process exit. Tests and full SARP.pwn compile with Pawn 3.10.10 and -;+ -(+ -d3 -E.
+The test VM heap/stack is 8192 cells; production keeps its existing allowance. Simulated player arrays
+and production MAX_PLAYERS loops share the same five-slot limit in the harness.
+
+New coverage includes:
+
+- RCON-only create/rename/activate/deactivate/archive; incomplete configuration and permission loss.
+- Stable IDs, pagination, captured row IDs, stale lists, capacity (including tombstones) and overflow.
+- Public near-zone choice, overlap, explicit ID, dimension/distance/weapon/occupancy revalidation,
+  unprivileged participants and one active round per player.
+- Two concurrent rounds with isolated shot counts, targets, scoring, timers, cancellation and countdowns.
+- Per-zone writer locks, menus, previews and unrelated edits during an active round.
+- Whole-registry v7 round trip, names/full target transforms/rules, archive/active state and next ID.
+- Legacy v1-v6 migration, blocked occupied/editor reload, malformed metadata/point lines/IDs,
+  validated stage/backup, failed writes, torn primary recovery and pending repair.
+- All previous scoring, editor, preview repair, report, weapon and timing regressions below.
+
+The run used ignored .local-server/multi-zone-development/runtime resources, loopback only,
+inside a temporary Docker container with networking disabled. The macOS full-build validation
+normalizes Windows include separators only in an ignored copy. No game client integration was simulated
+as a successful real client run. Logs are development artifacts, not source or deployable history.
+
+## Previous verification: 2026-10-07
 
 **606 assertions, 0 failures** on Windows SA-MP 0.3.DL-R1 and sscanf 2.13.1; normal process exit.
 
@@ -69,18 +95,11 @@ Coverage includes:
 - Save failure/retry, v1-v4 migration to weapon masks, v6 round trips, custom names/models/full rotations,
   invalid masks and malformed/truncated files.
 
-The full SARP.pwn also compiled with Pawn 3.10.10 and -;+ -(+ -d3 -E, retaining existing global
-warning suppressions. Real server startup loaded seven plugins and the saved configuration,
-responded on UDP 127.0.0.1:7777 and was left running. Loading did not change the existing layout hash.
-The latest feedback build was deployed on 2026-10-07 after the user explicitly requested a restart.
-All seven plugins and the configuration loaded. UDP status responds and the configuration hash is unchanged.
-A subsequent start-capture fix exempts start drafts from target placement radius checks. It is
-compiled and tested, then loaded after the user explicitly requested a restart. The /irpruebas
-shortcut was compiled with the full gamemode and loaded in the same restart. Native teleport/camera
-behavior remains a client check. The saved station configuration was preserved.
-The subsequent verdict-word color, literal percent, Save ordering, protected wording and
-cancellation wording changes are compiled and pass the isolated tests, pending a requested restart.
-Do not restart the playable server automatically during the user's in-game feedback.
+Earlier Windows evidence: Pawn 3.10.10 full compilation and isolated 606-assertion test run.
+The prior playable Windows build loaded seven plugins and the saved configuration without changing
+its layout hash, following explicitly requested restarts. The user subsequently stopped that server.
+Those deployments do not validate the new multi-zone source. Do not restart a playable server
+automatically during the user's in-game feedback.
 
 Adapters do not execute the actual easyDialog/mSelection/YSI dispatcher, render the client,
 move a real cursor, verify collision/network shot reporting or native model breakage, exercise the

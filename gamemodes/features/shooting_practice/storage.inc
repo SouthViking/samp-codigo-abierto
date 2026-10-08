@@ -3,70 +3,30 @@
 #endif
 #define SP_STORAGE_INCLUDED
 
+#define PRACTICE_CONFIG_TEMP "shooting_practice.cfg.tmp"
+#define PRACTICE_CONFIG_BACKUP "shooting_practice.cfg.bak"
+// File backend v7 stores the entire registry. Attempts remain transient.
+// TODO(SP-DB-SAVE/LOAD): replace this repository with host-connection transactions,
+// immutable configuration versions and external identity references. No SQL in dialogs/shots.
+
 stock bool:PracticeWriteLine(File:output, const line[])
 {
     return fwrite(output, line) == strlen(line);
-}
-
-stock bool:PracticeSaveConfiguration()
-{
-    new File:output = fopen(PRACTICE_CONFIG_FILE, io_write);
-    if (!output) return false;
-
-    new line[256];
-    new bool:success = PracticeWriteLine(output, "SARP_PRACTICE 6\r\n");
-    format(line, sizeof(line), "%d %d %d %d %d %d %d %d\r\n", PracticeRules[PracticeWeaponMask],
-        PracticeRules[PracticePassPoints], PracticeRules[PracticePreparation],
-        PracticeRules[PracticeExposure], PracticeRules[PracticeInterval],
-        PracticeRules[PracticeMaxErrors], PracticeRules[PracticeRandomOrder], PracticeRules[PracticeRandomTypes]);
-    if (!PracticeWriteLine(output, line)) success = false;
-
-    for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++)
-    {
-        format(line, sizeof(line), "%d %.6f %.6f %.6f %.6f %d %d %d %d %.6f %.6f\r\n",
-            PracticePoints[slot][PracticePointSet], PracticePoints[slot][PracticePointX],
-            PracticePoints[slot][PracticePointY], PracticePoints[slot][PracticePointZ],
-            PracticePoints[slot][PracticePointAngle], PracticePoints[slot][PracticePointInterior],
-            PracticePoints[slot][PracticePointWorld], PracticePoints[slot][PracticePointNoShoot],
-            PracticePoints[slot][PracticePointModel], PracticePoints[slot][PracticePointRotX], PracticePoints[slot][PracticePointRotY]);
-        if (!PracticeWriteLine(output, line)) success = false;
-        format(line, sizeof(line), "NAME %s\r\n", PracticePoints[slot][PracticePointName]);
-        if (!PracticeWriteLine(output, line)) success = false;
-    }
-    if (!PracticeWriteLine(output, "END\r\n")) success = false;
-    if (!fclose(output)) success = false;
-    return success;
 }
 
 stock bool:PracticeReadLine(File:input, line[], size = sizeof line)
 {
     if (!fread(input, line, size)) return false;
     new length = strlen(line);
-    while (length && (line[length - 1] == '\r' || line[length - 1] == '\n'))
-        line[--length] = EOS;
+    while (length && (line[length - 1] == '\r' || line[length - 1] == '\n')) line[--length] = EOS;
     return true;
 }
 
-stock bool:PracticeLoadConfiguration()
+stock bool:PracticeReadLayout(File:input, version, points[PRACTICE_MAX_TARGETS + 1][E_PRACTICE_POINT],
+    rules[E_PRACTICE_RULE], const terminator[])
 {
-    if (!fexist(PRACTICE_CONFIG_FILE)) return false;
-    new File:input = fopen(PRACTICE_CONFIG_FILE, io_read);
-    if (!input) return false;
-
-    // Parse into temporary records; truncated/invalid files never load partially.
-    new points[PRACTICE_MAX_TARGETS + 1][E_PRACTICE_POINT];
-    new rules[E_PRACTICE_RULE], line[256], version, legacyNoShootCount;
-    new bool:valid = PracticeReadLine(input, line);
-    if (valid)
-    {
-        if (!strcmp(line, "SARP_PRACTICE 1")) version = 1;
-        else if (!strcmp(line, "SARP_PRACTICE 2")) version = 2;
-        else if (!strcmp(line, "SARP_PRACTICE 3")) version = 3;
-        else if (!strcmp(line, "SARP_PRACTICE 4")) version = 4;
-        else if (!strcmp(line, "SARP_PRACTICE 5")) version = 5;
-        else if (!strcmp(line, "SARP_PRACTICE 6")) version = 6;
-        else valid = false;
-    }
+    new line[256], legacyNoShootCount;
+    new bool:valid = true;
     if (valid)
     {
         valid = PracticeReadLine(input, line);
@@ -145,17 +105,7 @@ stock bool:PracticeLoadConfiguration()
                 && PracticeModelIndex(points[slot][PracticePointModel]) >= 0;
         else valid = valid && !points[slot][PracticePointModel];
     }
-    if (valid) valid = PracticeReadLine(input, line) && !strcmp(line, "END");
-    fclose(input);
-
-    if (!valid)
-    {
-        print("[Shooting Practice] Invalid/truncated shooting_practice.cfg. Configuration was not loaded.");
-        return false;
-    }
-    // v2 assigned no-shoot to the highest marked slots. Materialize those types
-    // once, retaining coordinates, order and random-distribution preferences.
-    // Incomplete legacy layouts can have fewer positions than their old quota.
+    if (valid) valid = PracticeReadLine(input, line) && !strcmp(line, terminator);
     if (version == 2)
         for (new slot = PRACTICE_MAX_TARGETS; slot > 0 && legacyNoShootCount; slot--)
             if (points[slot][PracticePointSet])
@@ -163,19 +113,217 @@ stock bool:PracticeLoadConfiguration()
                 points[slot][PracticePointNoShoot] = true;
                 legacyNoShootCount--;
             }
-    for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++) PracticePoints[slot] = points[slot];
-    PracticeRules = rules;
-    PracticeSavePending = false;
-    print("[Shooting Practice] Configuration loaded from shooting_practice.cfg.");
+    return valid;
+}
+
+// Staging records are static: loading a bounded registry does not consume the VM stack.
+// No partial publication, and validation-only reads never mutate live state or UI.
+stock bool:PracticeReadRegistry(const path[], bool:publish = false)
+{
+    new File:input = fopen(path, io_read);
+    if (!input) return false;
+    static points[PRACTICE_MAX_ZONES][PRACTICE_MAX_TARGETS + 1][E_PRACTICE_POINT];
+    static rules[PRACTICE_MAX_ZONES][E_PRACTICE_RULE];
+    static ids[PRACTICE_MAX_ZONES], names[PRACTICE_MAX_ZONES][PRACTICE_ZONE_NAME_SIZE];
+    static bool:enabled[PRACTICE_MAX_ZONES], bool:archived[PRACTICE_MAX_ZONES];
+    new empty[E_PRACTICE_POINT];
+    for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
+    {
+        ids[zone] = 0; names[zone][0] = EOS; enabled[zone] = archived[zone] = false;
+        rules[zone] = PracticeDefaultRules;
+        for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++) points[zone][slot] = empty;
+    }
+    new line[256], expected[80], prefix[24], version, count = 1, nextId = 2;
+    new bool:valid = PracticeReadLine(input, line) && !sscanf(line, "s[24]i", prefix, version);
+    if (valid)
+    {
+        format(expected, sizeof(expected), "SARP_PRACTICE %d", version);
+        valid = version >= 1 && version <= 7 && !strcmp(line, expected);
+    }
+    if (valid && version == 7)
+    {
+        valid = PracticeReadLine(input, line) && strfind(line, "REGISTRY ") == 0
+            && !sscanf(line[9], "ii", nextId, count) && nextId > 0
+            && count >= 0 && count <= PRACTICE_MAX_ZONES;
+        if (valid)
+        {
+            format(expected, sizeof(expected), "REGISTRY %d %d", nextId, count);
+            valid = !strcmp(line, expected);
+        }
+        for (new zone = 0; valid && zone < count; zone++)
+        {
+            new active, retired;
+            valid = PracticeReadLine(input, line) && strfind(line, "ZONE ") == 0
+                && !sscanf(line[5], "iii", ids[zone], active, retired)
+                && ids[zone] > 0 && ids[zone] < nextId
+                && (active == 0 || active == 1) && (retired == 0 || retired == 1)
+                && !(active && retired);
+            if (valid)
+            {
+                format(expected, sizeof(expected), "ZONE %d %d %d", ids[zone], active, retired);
+                valid = !strcmp(line, expected);
+            }
+            for (new earlier = 0; valid && earlier < zone; earlier++)
+                if (ids[zone] == ids[earlier]) valid = false;
+            if (valid)
+            {
+                enabled[zone] = bool:active; archived[zone] = bool:retired;
+                valid = PracticeReadLine(input, line) && strfind(line, "ZONE_NAME ") == 0
+                    && strlen(line) < 10 + PRACTICE_ZONE_NAME_SIZE;
+                if (valid)
+                {
+                    strmid(names[zone], line, 10, strlen(line), PRACTICE_ZONE_NAME_SIZE);
+                    valid = PracticeZoneNameValid(names[zone]);
+                }
+            }
+            if (valid) valid = PracticeReadLayout(input, 6, points[zone], rules[zone], "END_ZONE");
+        }
+        if (valid) valid = PracticeReadLine(input, line) && !strcmp(line, "END");
+    }
+    else if (valid)
+    {
+        ids[0] = 1;
+        format(names[0], PRACTICE_ZONE_NAME_SIZE, "Campo de tiro");
+        enabled[0] = true; // Preserve the legacy public station, if playable.
+        valid = PracticeReadLayout(input, version, points[0], rules[0], "END");
+    }
+    while (valid && PracticeReadLine(input, line))
+        if (line[0]) valid = false;
+    fclose(input);
+    if (!valid || !publish) return valid;
+    // Runtime reloads may not replace an occupied registry or an editor's draft.
+    for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
+        if (PracticeIsBusy(zone) || PracticeConfigurationEditing(zone)) return false;
+    for (new playerid = 0; playerid < MAX_PLAYERS; playerid++) PracticeResetUI(playerid);
+    PracticeRegistrySavePending = false;
+    for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
+    {
+        PracticeZoneID[zone] = ids[zone];
+        format(PracticeZoneName[zone], PRACTICE_ZONE_NAME_SIZE, "%s", names[zone]);
+        PracticeZoneEnabled[zone] = enabled[zone]; PracticeZoneArchived[zone] = archived[zone];
+        PracticeRules[zone] = rules[zone];
+        for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++) PracticePoints[zone][slot] = points[zone][slot];
+        PracticeRevision[zone]++;
+        PracticeSavePending[zone] = false;
+        new reason[144];
+        if (enabled[zone] && !PracticeConfigurationReady(zone, reason))
+        {
+            PracticeZoneEnabled[zone] = false;
+            if (version == 7) PracticeSavePending[zone] = PracticeRegistrySavePending = true;
+        }
+    }
+    PracticeNextZoneID = nextId;
+    PracticeRegistryRevision++;
+    PracticeStorageBlocked = false;
+    for (new playerid = 0; playerid < MAX_PLAYERS; playerid++)
+        PracticeSelectedZone[playerid] = PracticeFindZone(PracticeSelectedZoneID[playerid]);
     return true;
 }
 
-stock PracticeSaveAndNotify(playerid)
+stock bool:PracticeCopyConfiguration(const source[], const destination[])
 {
-    PracticeSavePending = !PracticeSaveConfiguration();
-    if (!PracticeSavePending)
+    new File:input = fopen(source, io_read);
+    if (!input) return false;
+    new File:output = fopen(destination, io_write);
+    if (!output) { fclose(input); return false; }
+    new line[256], bool:success = true;
+    while (fread(input, line, sizeof(line)))
+        if (!PracticeWriteLine(output, line)) { success = false; break; }
+    fclose(input);
+    if (!fclose(output)) success = false;
+    return success;
+}
+
+stock bool:PracticeSaveConfiguration()
+{
+    if (PracticeStorageBlocked) return false;
+    new File:output = fopen(PRACTICE_CONFIG_TEMP, io_write);
+    if (!output) return false;
+    new line[256], count;
+    for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++) if (PracticeZoneID[zone]) count++;
+    new bool:success = PracticeWriteLine(output, "SARP_PRACTICE 7\r\n");
+    format(line, sizeof(line), "REGISTRY %d %d\r\n", PracticeNextZoneID, count);
+    if (!PracticeWriteLine(output, line)) success = false;
+    for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
+    {
+        if (!PracticeZoneID[zone]) continue;
+        format(line, sizeof(line), "ZONE %d %d %d\r\n", PracticeZoneID[zone], PracticeZoneEnabled[zone], PracticeZoneArchived[zone]);
+        if (!PracticeWriteLine(output, line)) success = false;
+        format(line, sizeof(line), "ZONE_NAME %s\r\n", PracticeZoneName[zone]);
+        if (!PracticeWriteLine(output, line)) success = false;
+        format(line, sizeof(line), "%d %d %d %d %d %d %d %d\r\n", PracticeRules[zone][PracticeWeaponMask],
+            PracticeRules[zone][PracticePassPoints], PracticeRules[zone][PracticePreparation], PracticeRules[zone][PracticeExposure],
+            PracticeRules[zone][PracticeInterval], PracticeRules[zone][PracticeMaxErrors], PracticeRules[zone][PracticeRandomOrder], PracticeRules[zone][PracticeRandomTypes]);
+        if (!PracticeWriteLine(output, line)) success = false;
+        for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++)
+        {
+            format(line, sizeof(line), "%d %.6f %.6f %.6f %.6f %d %d %d %d %.6f %.6f\r\n",
+                PracticePoints[zone][slot][PracticePointSet], PracticePoints[zone][slot][PracticePointX], PracticePoints[zone][slot][PracticePointY],
+                PracticePoints[zone][slot][PracticePointZ], PracticePoints[zone][slot][PracticePointAngle], PracticePoints[zone][slot][PracticePointInterior],
+                PracticePoints[zone][slot][PracticePointWorld], PracticePoints[zone][slot][PracticePointNoShoot], PracticePoints[zone][slot][PracticePointModel],
+                PracticePoints[zone][slot][PracticePointRotX], PracticePoints[zone][slot][PracticePointRotY]);
+            if (!PracticeWriteLine(output, line)) success = false;
+            format(line, sizeof(line), "NAME %s\r\n", PracticePoints[zone][slot][PracticePointName]);
+            if (!PracticeWriteLine(output, line)) success = false;
+        }
+        if (!PracticeWriteLine(output, "END_ZONE\r\n")) success = false;
+    }
+    if (!PracticeWriteLine(output, "END\r\n")) success = false;
+    if (!fclose(output)) success = false;
+    if (!success || !PracticeReadRegistry(PRACTICE_CONFIG_TEMP)) return false;
+    // SA-MP has no native atomic rename. Keep the previous validated registry before
+    // copying the validated stage. Startup can recover the backup after a torn copy.
+    if (fexist(PRACTICE_CONFIG_FILE) && PracticeReadRegistry(PRACTICE_CONFIG_FILE))
+        if (!PracticeCopyConfiguration(PRACTICE_CONFIG_FILE, PRACTICE_CONFIG_BACKUP)
+            || !PracticeReadRegistry(PRACTICE_CONFIG_BACKUP)) return false;
+    if (!PracticeCopyConfiguration(PRACTICE_CONFIG_TEMP, PRACTICE_CONFIG_FILE)
+        || !PracticeReadRegistry(PRACTICE_CONFIG_FILE)) return false;
+    fremove(PRACTICE_CONFIG_TEMP);
+    return true;
+}
+
+stock bool:PracticeLoadConfiguration()
+{
+    // Refusing an in-use reload is not evidence of file corruption.
+    for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
+        if (PracticeIsBusy(zone) || PracticeConfigurationEditing(zone)) return false;
+    if (PracticeReadRegistry(PRACTICE_CONFIG_FILE, true)) return true;
+    if (PracticeReadRegistry(PRACTICE_CONFIG_BACKUP, true))
+    {
+        PracticeRegistrySavePending = true;
+        print("[Shooting Practice] Recovered backup. Save the registry to repair shooting_practice.cfg.");
+        return true;
+    }
+    if (!fexist(PRACTICE_CONFIG_FILE) && PracticeReadRegistry(PRACTICE_CONFIG_TEMP, true))
+    {
+        PracticeRegistrySavePending = true;
+        print("[Shooting Practice] Recovered initial staging file. Save the registry.");
+        return true;
+    }
+    if (fexist(PRACTICE_CONFIG_FILE) || fexist(PRACTICE_CONFIG_BACKUP) || fexist(PRACTICE_CONFIG_TEMP))
+    {
+        PracticeStorageBlocked = true;
+        print("[Shooting Practice] Invalid registry and no valid recovery file. Writes blocked.");
+    }
+    return false;
+}
+
+// TODO(SP-DB-ACK): asynchronous repositories acknowledge committed revisions,
+// retaining pending state and requester identity until a safe callback completes.
+stock PracticeSaveAndNotify(playerid, zone = -1)
+{
+    if (zone < 0) zone = PracticeSelectedZone[playerid];
+    new bool:success = PracticeSaveConfiguration();
+    PracticeRegistrySavePending = !success;
+    if (success)
+    {
+        for (new index = 0; index < PRACTICE_MAX_ZONES; index++) PracticeSavePending[index] = false;
         SendClientMessage(playerid, COLOR_LIGHTGREEN, "Configuración guardada. Se recuperará al reiniciar.");
+    }
     else
-        SendClientMessage(playerid, COLOR_LIGHTORANGE, "No se pudo guardar. Cambios en memoria: usa Reintentar guardado en /practicaconfig antes de reiniciar.");
+    {
+        if (PracticeZoneExists(zone)) PracticeSavePending[zone] = true;
+        SendClientMessage(playerid, COLOR_LIGHTORANGE, "No se pudo guardar. Cambios en memoria: usa Reintentar guardado antes de reiniciar.");
+    }
     return 1;
 }

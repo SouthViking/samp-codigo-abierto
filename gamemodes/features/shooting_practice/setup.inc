@@ -7,14 +7,20 @@
 enum {
     SP_MENU_NONE, SP_MENU_MAIN, SP_MENU_TARGETS, SP_MENU_DRAFT,
     SP_MENU_NAME, SP_MENU_BEHAVIOUR, SP_MENU_RULES, SP_MENU_NUMBER, SP_MENU_WEAPON,
-    SP_MENU_DELETE, SP_MENU_RESET, SP_MENU_START_CONFIRM, SP_MENU_EDIT_ERROR, SP_MENU_RULE_INFO
+    SP_MENU_DELETE, SP_MENU_RESET, SP_MENU_START_CONFIRM, SP_MENU_EDIT_ERROR, SP_MENU_RULE_INFO,
+    SP_MENU_ZONES, SP_MENU_CREATE_ZONE, SP_MENU_RENAME_ZONE, SP_MENU_ARCHIVE_ZONE, SP_MENU_PLAYER_ZONES
 }
 enum {
     SP_MAIN_START_POINT, SP_MAIN_TARGETS, SP_MAIN_RULES, SP_MAIN_PREVIEW,
-    SP_MAIN_START_PRACTICE, SP_MAIN_RESET, SP_MAIN_RETRY_SAVE, SP_MAIN_CANCEL_PRACTICE
+    SP_MAIN_START_PRACTICE, SP_MAIN_RESET, SP_MAIN_RETRY_SAVE, SP_MAIN_CANCEL_PRACTICE,
+    SP_MAIN_RENAME_ZONE, SP_MAIN_TOGGLE_ZONE, SP_MAIN_ARCHIVE_ZONE
 }
-new PracticeMainRows[MAX_PLAYERS][8], PracticeMainRowCount[MAX_PLAYERS];
-new PracticeMenuPage[MAX_PLAYERS], PracticeMenuRevision[MAX_PLAYERS];
+new PracticeMainRows[MAX_PLAYERS][11], PracticeMainRowCount[MAX_PLAYERS];
+new PracticeMenuPage[MAX_PLAYERS], PracticeMenuRevision[MAX_PLAYERS], PracticeMenuZoneID[MAX_PLAYERS];
+new PracticeZoneListRows[MAX_PLAYERS][PRACTICE_ZONE_PAGE_SIZE + 4], PracticeZoneListCount[MAX_PLAYERS];
+new PracticeZoneListPage[MAX_PLAYERS], PracticeZoneListRevision[MAX_PLAYERS];
+new bool:PracticeZoneListHelp[MAX_PLAYERS];
+enum { SP_ZONE_CREATE = -1, SP_ZONE_PREVIOUS = -2, SP_ZONE_NEXT = -3, SP_ZONE_RETRY_SAVE = -4 }
 new PracticeMenuRows[MAX_PLAYERS][PRACTICE_MAX_TARGETS + 1], PracticeMenuRowCount[MAX_PLAYERS];
 new E_PRACTICE_RULE:PracticeRuleField[MAX_PLAYERS];
 new bool:PracticeCatalogueOpen[MAX_PLAYERS];
@@ -23,7 +29,9 @@ new PlayerText:PracticeCatalogueLabels[MAX_PLAYERS][sizeof(PracticeModels)];
 stock PracticeDialog(playerid, page, style, const title[], const body[], const accept[] = "Seleccionar", const cancel[] = "Volver")
 {
     PracticeMenuPage[playerid] = page;
-    PracticeMenuRevision[playerid] = PracticeRevision;
+    PracticeMenuZoneID[playerid] = PracticeSelectedZoneID[playerid];
+    PracticeMenuRevision[playerid] = PracticeSelectedZoneValid(playerid) ? PracticeRevision[PracticeSelectedZone[playerid]] : -1;
+    PracticeZoneListRevision[playerid] = PracticeRegistryRevision;
     return Dialog_Show(playerid, SP_Menu, style, title, body, accept, cancel);
 }
 
@@ -45,7 +53,7 @@ stock PracticeResetUI(playerid)
 {
     if (PracticeMenuPage[playerid] != SP_MENU_NONE && IsPlayerConnected(playerid)) HidePlayerDialog(playerid);
     PracticeMenuPage[playerid] = SP_MENU_NONE;
-    PracticeMenuRowCount[playerid] = PracticeMainRowCount[playerid] = 0;
+    PracticeMenuRowCount[playerid] = PracticeMainRowCount[playerid] = PracticeZoneListCount[playerid] = 0;
     PracticeDiscardDraft(playerid);
     PracticeHidePreview(playerid);
     return 1;
@@ -62,42 +70,53 @@ stock PracticeAddMainRow(playerid, action, body[], size, const label[], const de
 
 stock PracticeShowMain(playerid)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return PracticeShowZones(playerid);
     PracticeLeaveSetupView(playerid);
-    new body[800] = "Opción\tDetalle", detail[96], weapon[32];
+    static body[1300];
+    format(body, sizeof(body), "Opción\tDetalle");
+    new detail[96], weapon[32], title[72];
     PracticeMainRowCount[playerid] = 0;
-    PracticeWeaponsSummary(PracticeRules[PracticeWeaponMask], weapon);
+    PracticeWeaponsSummary(PracticeRules[zone][PracticeWeaponMask], weapon);
     PracticeAddMainRow(playerid, SP_MAIN_START_POINT, body, sizeof(body), "Punto de inicio", "Marcar mi posición actual");
-    format(detail, sizeof(detail), "%d blancos de tiro, %d protegidos", PracticeCountShootTargets(), PracticeCountNoShootTargets());
+    format(detail, sizeof(detail), "%d blancos de tiro, %d protegidos", PracticeCountShootTargets(zone), PracticeCountNoShootTargets(zone));
     PracticeAddMainRow(playerid, SP_MAIN_TARGETS, body, sizeof(body), "Blancos", detail);
     PracticeAddMainRow(playerid, SP_MAIN_RULES, body, sizeof(body), "Reglas del ejercicio", weapon);
     PracticeAddMainRow(playerid, SP_MAIN_PREVIEW, body, sizeof(body),
         PracticePreviewActive[playerid] ? ("Ocultar vista previa") : ("Vista previa"), "Ver inicio y blancos");
-    if (PracticeIsBusy() && PracticeSession[PracticePlayer] == playerid)
+    if (PracticeIsBusy(zone) && PracticeSession[zone][PracticePlayer] == playerid)
         PracticeAddMainRow(playerid, SP_MAIN_CANCEL_PRACTICE, body, sizeof(body), "Cancelar práctica");
-    else if (PracticeCanStart(playerid))
+    else if (PracticeCanStart(zone, playerid))
         PracticeAddMainRow(playerid, SP_MAIN_START_PRACTICE, body, sizeof(body), "Iniciar práctica");
     PracticeAddMainRow(playerid, SP_MAIN_RESET, body, sizeof(body), "Reiniciar configuración", "Borrar el campo de tiro");
-    if (PracticeSavePending)
+    if (PracticeSavePending[zone])
         PracticeAddMainRow(playerid, SP_MAIN_RETRY_SAVE, body, sizeof(body), "Reintentar guardado", "Cambios sin guardar");
-    return PracticeDialog(playerid, SP_MENU_MAIN, DIALOG_STYLE_TABLIST_HEADERS, "Campo de tiro", body, "Seleccionar", "Cerrar");
+    PracticeAddMainRow(playerid, SP_MAIN_RENAME_ZONE, body, sizeof(body), "Nombre de la zona", PracticeZoneName[zone]);
+    PracticeAddMainRow(playerid, SP_MAIN_TOGGLE_ZONE, body, sizeof(body), PracticeZoneEnabled[zone] ? ("Desactivar zona") : ("Activar zona"),
+        PracticeZoneEnabled[zone] ? ("Disponible para practicar") : ("Cerrada para practicar"));
+    PracticeAddMainRow(playerid, SP_MAIN_ARCHIVE_ZONE, body, sizeof(body), "Archivar zona", "Retirar del listado y del uso");
+    format(title, sizeof(title), "Zona #%d: %s", PracticeZoneID[zone], PracticeZoneName[zone]);
+    return PracticeDialog(playerid, SP_MENU_MAIN, DIALOG_STYLE_TABLIST_HEADERS, title, body, "Seleccionar", "Zonas");
 }
 
 stock PracticeShowTargets(playerid)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
     PracticeEnsureSetupView(playerid);
     new body[1400] = "Blanco\tObjeto\tComportamiento\nAñadir blanco\tElegir y colocar\t", line[130], name[PRACTICE_NAME_SIZE], modelName[24];
     PracticeMenuRowCount[playerid] = 1;
     PracticeMenuRows[playerid][0] = 0;
     for (new slot = 1; slot <= PRACTICE_MAX_TARGETS; slot++)
     {
-        if (!PracticePoints[slot][PracticePointSet]) continue;
-        PracticePointDisplayName(PracticePoints[slot], slot, name);
-        new model = PracticeModelIndex(PracticePoints[slot][PracticePointModel]);
+        if (!PracticePoints[zone][slot][PracticePointSet]) continue;
+        PracticePointDisplayName(PracticePoints[zone][slot], slot, name);
+        new model = PracticeModelIndex(PracticePoints[zone][slot][PracticePointModel]);
         if (model >= 0) format(modelName, sizeof(modelName), "%s", PracticeModels[model][PracticeModelName]);
         else format(modelName, sizeof(modelName), "Modelo inválido");
         format(line, sizeof(line), "\n%s\t%s\t%s", name,
             modelName,
-            PracticePoints[slot][PracticePointNoShoot] ? ("No disparar") : ("Disparar"));
+            PracticePoints[zone][slot][PracticePointNoShoot] ? ("No disparar") : ("Disparar"));
         strcat(body, line, sizeof(body));
         PracticeMenuRows[playerid][PracticeMenuRowCount[playerid]++] = slot;
     }
@@ -185,23 +204,27 @@ stock PracticeShowEditError(playerid)
 
 stock PracticeShowRules(playerid)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
     new body[640], weapon[32];
-    PracticeWeaponsSummary(PracticeRules[PracticeWeaponMask], weapon);
+    PracticeWeaponsSummary(PracticeRules[zone][PracticeWeaponMask], weapon);
     format(body, sizeof(body), "Regla\tValor\nArmas permitidas\t%s\nPuntos mínimos\t%d\nErrores máximos\t%d\nPreparación\t%d segundos\nTiempo por blanco\t%.1f segundos\nIntervalo\t%.1f segundos\nOrden de aparición\t%s\nDistribución de blancos\t%s",
-        weapon, PracticeRules[PracticePassPoints], PracticeRules[PracticeMaxErrors],
-        PracticeRules[PracticePreparation], float(PracticeRules[PracticeExposure]) / 1000.0, float(PracticeRules[PracticeInterval]) / 1000.0,
-        PracticeRules[PracticeRandomOrder] ? ("Aleatorio") : ("Fijo"),
-        PracticeRules[PracticeRandomTypes] ? ("Aleatoria entre posiciones") : ("Fija por posición"));
+        weapon, PracticeRules[zone][PracticePassPoints], PracticeRules[zone][PracticeMaxErrors],
+        PracticeRules[zone][PracticePreparation], float(PracticeRules[zone][PracticeExposure]) / 1000.0, float(PracticeRules[zone][PracticeInterval]) / 1000.0,
+        PracticeRules[zone][PracticeRandomOrder] ? ("Aleatorio") : ("Fijo"),
+        PracticeRules[zone][PracticeRandomTypes] ? ("Aleatoria entre posiciones") : ("Fija por posición"));
     return PracticeDialog(playerid, SP_MENU_RULES, DIALOG_STYLE_TABLIST_HEADERS, "Reglas del ejercicio", body);
 }
 
 stock PracticeShowWeapons(playerid)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
     new body[1024] = "Arma\tSelecciona para permitir o quitar", line[96];
     for (new weaponid = PRACTICE_WEAPON_FIRST; weaponid <= PRACTICE_WEAPON_LAST; weaponid++)
     {
         format(line, sizeof(line), "\n%s\t%s", PracticeWeaponNames[weaponid - PRACTICE_WEAPON_FIRST],
-            PracticeWeaponAllowed(weaponid, PracticeRules[PracticeWeaponMask]) ? ("Permitida") : ("No permitida"));
+            PracticeWeaponAllowed(weaponid, PracticeRules[zone][PracticeWeaponMask]) ? ("Permitida") : ("No permitida"));
         strcat(body, line, sizeof(body));
     }
     return PracticeDialog(playerid, SP_MENU_WEAPON, DIALOG_STYLE_TABLIST_HEADERS, "Armas permitidas", body, "Cambiar", "Volver");
@@ -209,13 +232,15 @@ stock PracticeShowWeapons(playerid)
 
 stock PracticeShowRuleInput(playerid, E_PRACTICE_RULE:rule)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
     PracticeRuleField[playerid] = rule;
     new title[64], body[800], help[560], minimum, maximum;
     switch (rule)
     {
         case PracticePassPoints:
         {
-            format(title, sizeof(title), "Puntos mínimos"); minimum = 1; maximum = PracticeCountShootTargets();
+            format(title, sizeof(title), "Puntos mínimos"); minimum = 1; maximum = PracticeCountShootTargets(zone);
             if (!maximum)
                 return PracticeDialog(playerid, SP_MENU_RULE_INFO, DIALOG_STYLE_MSGBOX, title,
                     "Primero añade al menos un blanco de tipo Blanco de tiro (disparar).\nCada blanco de tiro permite conseguir un punto.\nDespués podrás elegir cuántos puntos netos se necesitan para aprobar.", "Volver", "");
@@ -223,7 +248,7 @@ stock PracticeShowRuleInput(playerid, E_PRACTICE_RULE:rule)
         }
         case PracticeMaxErrors:
         {
-            format(title, sizeof(title), "Errores máximos"); maximum = PracticeCountNoShootTargets();
+            format(title, sizeof(title), "Errores máximos"); maximum = PracticeCountNoShootTargets(zone);
             format(help, sizeof(help), "Máximo de errores de identificación permitidos para aprobar.\nDisparar mientras aparece un blanco protegido cuenta como un error, incluso al aire,\ny resta 1 punto. Se cuenta como máximo un error por blanco protegido.\nSuperar este límite impide aprobar, aunque se alcancen los puntos mínimos.\nEl ejercicio continúa hasta el final.\n\n0 exige no cometer errores. Hay %d blancos protegidos configurados.", maximum);
         }
         case PracticePreparation:
@@ -245,14 +270,16 @@ stock PracticeShowRuleInput(playerid, E_PRACTICE_RULE:rule)
     }
     if (rule == PracticeExposure || rule == PracticeInterval)
         format(body, sizeof(body), "%s\n\nValor actual: %.1f segundos\nIntroduce un valor entre %.1f y %.1f segundos.\nPuedes usar un decimal con punto o coma, por ejemplo 0.5 o 0,5.",
-            help, float(PracticeRules[rule]) / 1000.0, float(minimum) / 1000.0, float(maximum) / 1000.0);
+            help, float(PracticeRules[zone][rule]) / 1000.0, float(minimum) / 1000.0, float(maximum) / 1000.0);
     else
-        format(body, sizeof(body), "%s\n\nValor actual: %d\nIntroduce un número entero entre %d y %d.", help, PracticeRules[rule], minimum, maximum);
+        format(body, sizeof(body), "%s\n\nValor actual: %d\nIntroduce un número entero entre %d y %d.", help, PracticeRules[zone][rule], minimum, maximum);
     return PracticeDialog(playerid, SP_MENU_NUMBER, DIALOG_STYLE_INPUT, title, body, "Guardar", "Volver");
 }
 
 stock bool:PracticeApplyRuleInput(playerid, const input[])
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return false;
     new length = strlen(input), value, E_PRACTICE_RULE:rule = PracticeRuleField[playerid], rules[E_PRACTICE_RULE];
     if (rule == PracticeExposure || rule == PracticeInterval)
     {
@@ -284,26 +311,28 @@ stock bool:PracticeApplyRuleInput(playerid, const input[])
             value = value * 10 + input[i] - '0';
         }
     }
-    rules = PracticeRules;
+    rules = PracticeRules[zone];
     rules[rule] = value;
     if (!PracticeRulesValid(rules)
-        || (rule == PracticePassPoints && value > PracticeCountShootTargets())
-        || (rule == PracticeMaxErrors && value > PracticeCountNoShootTargets())) return false;
-    PracticeRules = rules;
+        || (rule == PracticePassPoints && value > PracticeCountShootTargets(zone))
+        || (rule == PracticeMaxErrors && value > PracticeCountNoShootTargets(zone))) return false;
+    PracticeRules[zone] = rules;
     PracticeConfigurationChanged(playerid);
     return true;
 }
 
 stock PracticeCommitStart(playerid)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
     if (!PracticeDraftCurrent(playerid) || PracticeDraftSlot[playerid] != 0) return 0;
     if (!PracticePointValid(PracticeDraft[playerid])) { PracticeDiscardDraft(playerid); return PracticeShowMain(playerid); }
-    if (PracticePoints[0][PracticePointSet] && !PracticeSameDimension(PracticePoints[0], PracticeDraft[playerid]))
+    if (PracticePoints[zone][0][PracticePointSet] && !PracticeSameDimension(PracticePoints[zone][0], PracticeDraft[playerid]))
     {
         new empty[E_PRACTICE_POINT];
-        for (new slot = 1; slot <= PRACTICE_MAX_TARGETS; slot++) PracticePoints[slot] = empty;
+        for (new slot = 1; slot <= PRACTICE_MAX_TARGETS; slot++) PracticePoints[zone][slot] = empty;
     }
-    PracticePoints[0] = PracticeDraft[playerid];
+    PracticePoints[zone][0] = PracticeDraft[playerid];
     PracticeDiscardDraft(playerid);
     PracticeConfigurationChanged(playerid);
     return PracticeShowMain(playerid);
@@ -311,13 +340,15 @@ stock PracticeCommitStart(playerid)
 
 stock PracticeMarkStart(playerid)
 {
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid)) return 0;
     if (!PracticeMayChange(playerid)) return 0;
     PracticeDiscardDraft(playerid);
-    PracticeEditorOwner = playerid;
+    PracticeEditorOwner[zone] = playerid;
     PracticeDraftSlot[playerid] = 0;
-    PracticeDraftRevision[playerid] = PracticeRevision;
+    PracticeDraftRevision[playerid] = PracticeRevision[zone];
     PracticeCapturePoint(playerid, PracticeDraft[playerid]);
-    if (PracticeCountTargets() && !PracticeSameDimension(PracticePoints[0], PracticeDraft[playerid]))
+    if (PracticeCountTargets(zone) && !PracticeSameDimension(PracticePoints[zone][0], PracticeDraft[playerid]))
         return PracticeDialog(playerid, SP_MENU_START_CONFIRM, DIALOG_STYLE_MSGBOX, "Cambiar interior o mundo",
             "El nuevo inicio está en otro interior o mundo.\nConfirmar eliminará todos los blancos anteriores.\n\nLas reglas del ejercicio se conservan.", "Confirmar", "Cancelar");
     return PracticeCommitStart(playerid);
@@ -328,9 +359,21 @@ stock PracticeHandleMenu(playerid, response, listitem, const inputtext[])
     new page = PracticeMenuPage[playerid];
     if (page == SP_MENU_NONE) return 0;
     PracticeMenuPage[playerid] = SP_MENU_NONE; // consume this response exactly once
-    if (!IsPlayerConnected(playerid) || !IsPlayerAdmin(playerid) || IsPlayerNPC(playerid))
+    // Public selection is handled before administrative authorization; it cannot
+    // dispatch any editor action or change the administrator's selected zone.
+    if (page == SP_MENU_PLAYER_ZONES) return PracticeHandlePlayerZones(playerid, response, listitem);
+    if (page == SP_MENU_ZONES || page == SP_MENU_CREATE_ZONE)
+        return PracticeHandleZoneList(playerid, page, response, listitem, inputtext);
+    new zone = PracticeSelectedZone[playerid];
+    if (!PracticeSelectedZoneValid(playerid))
+    {
+        PracticeResetUI(playerid);
+        if (PracticeIsAdministrator(playerid)) return PracticeShowZones(playerid);
+        return 1;
+    }
+    if (!PracticeIsAdministrator(playerid))
     { PracticeResetUI(playerid); return 1; }
-    if (PracticeMenuRevision[playerid] != PracticeRevision)
+    if (PracticeMenuZoneID[playerid] != PracticeZoneID[zone] || PracticeMenuRevision[playerid] != PracticeRevision[zone])
     {
         PracticeDiscardDraft(playerid);
         SendClientMessage(playerid, COLOR_LIGHTORANGE, "La configuración cambió. Revisa el menú actualizado.");
@@ -340,9 +383,10 @@ stock PracticeHandleMenu(playerid, response, listitem, const inputtext[])
     {
         switch (page)
         {
-            case SP_MENU_MAIN: return 1;
+            case SP_MENU_MAIN: return PracticeShowZones(playerid);
             case SP_MENU_DRAFT: { PracticeDiscardDraft(playerid); return PracticeShowTargets(playerid); }
             case SP_MENU_NAME, SP_MENU_DELETE: return PracticeShowDraftMenu(playerid);
+            case SP_MENU_RENAME_ZONE, SP_MENU_ARCHIVE_ZONE: return PracticeShowMain(playerid);
             case SP_MENU_BEHAVIOUR:
             {
                 if (PracticeDraftWizard[playerid]) return PracticeShowCatalogue(playerid);
@@ -365,15 +409,15 @@ stock PracticeHandleMenu(playerid, response, listitem, const inputtext[])
             case SP_MAIN_RULES: return PracticeShowRules(playerid);
             case SP_MAIN_START_PRACTICE:
             {
-                if (!PracticeCanStart(playerid)) return PracticeShowMain(playerid);
-                PracticeStart(playerid);
-                if (!PracticeIsBusy()) return PracticeShowMain(playerid);
+                if (!PracticeCanStart(zone, playerid)) return PracticeShowMain(playerid);
+                PracticeStart(zone, playerid);
+                if (!PracticeIsBusy(zone)) return PracticeShowMain(playerid);
                 return 1;
             }
             case SP_MAIN_CANCEL_PRACTICE:
             {
-                if (PracticeIsBusy() && PracticeSession[PracticePlayer] == playerid)
-                    PracticeEnd(false, "cancelada por el participante.");
+                if (PracticeIsBusy(zone) && PracticeSession[zone][PracticePlayer] == playerid)
+                    PracticeEnd(zone, false, "cancelada por el participante.");
                 return PracticeShowMain(playerid);
             }
         }
@@ -394,16 +438,30 @@ stock PracticeHandleMenu(playerid, response, listitem, const inputtext[])
                 }
                 case SP_MAIN_RESET: return PracticeDialog(playerid, SP_MENU_RESET, DIALOG_STYLE_MSGBOX, "Reiniciar configuración",
                     "Se borrarán el inicio, todos los blancos y sus ajustes.\nLas reglas volverán a sus valores iniciales.\n\n¿Quieres continuar?", "Reiniciar", "Cancelar");
-                case SP_MAIN_RETRY_SAVE: { if (PracticeSavePending) PracticeSaveAndNotify(playerid); return PracticeShowMain(playerid); }
+                case SP_MAIN_RETRY_SAVE: { if (PracticeSavePending[zone] || PracticeRegistrySavePending) PracticeSaveAndNotify(playerid); return PracticeShowMain(playerid); }
+                case SP_MAIN_RENAME_ZONE: return PracticeDialog(playerid, SP_MENU_RENAME_ZONE, DIALOG_STYLE_INPUT, "Nombre de la zona",
+                    "Introduce un nombre de hasta 48 caracteres, sin saltos de línea ni códigos de color.", "Guardar", "Volver");
+                case SP_MAIN_TOGGLE_ZONE: return PracticeToggleZone(playerid);
+                case SP_MAIN_ARCHIVE_ZONE: return PracticeDialog(playerid, SP_MENU_ARCHIVE_ZONE, DIALOG_STYLE_MSGBOX, "Archivar zona",
+                    "La zona dejará de aparecer y no se podrá usar.\nSe conservarán su ID y configuración en el archivo.\n\n¿Quieres archivarla?", "Archivar", "Cancelar");
             }
         }
+        case SP_MENU_RENAME_ZONE:
+        {
+            if (!PracticeZoneNameValid(inputtext))
+            { SendClientMessage(playerid, COLOR_FADE3, "Nombre inválido. Usa de 1 a 48 caracteres, sin códigos de color ni saltos de línea."); return PracticeShowMain(playerid); }
+            format(PracticeZoneName[zone], PRACTICE_ZONE_NAME_SIZE, "%s", inputtext);
+            PracticeConfigurationChanged(playerid);
+            return PracticeShowMain(playerid);
+        }
+        case SP_MENU_ARCHIVE_ZONE: return PracticeArchiveZone(playerid);
         case SP_MENU_TARGETS:
         {
             if (listitem < 0 || listitem >= PracticeMenuRowCount[playerid]) return PracticeShowTargets(playerid);
             new slot = PracticeMenuRows[playerid][listitem];
             if (!slot)
             {
-                slot = PracticeFreeTargetSlot();
+                slot = PracticeFreeTargetSlot(zone);
                 if (slot < 0) { SendClientMessage(playerid, COLOR_FADE3, "Ya hay diez blancos. Edita o elimina uno."); return PracticeShowTargets(playerid); }
                 if (PracticeBeginDraft(playerid, slot, true) && PracticeHasDraft(playerid)) return PracticeShowCatalogue(playerid);
             }
@@ -429,7 +487,7 @@ stock PracticeHandleMenu(playerid, response, listitem, const inputtext[])
                 case 4:
                 {
                     if (PracticeDraftNew[playerid]) return PracticeShowDraftMenu(playerid);
-                    new slot = PracticeFreeTargetSlot();
+                    new slot = PracticeFreeTargetSlot(zone);
                     if (slot < 0) { SendClientMessage(playerid, COLOR_FADE3, "Ya hay diez blancos."); return PracticeShowDraftMenu(playerid); }
                     PracticeDraftSlot[playerid] = slot;
                     PracticeDraftNew[playerid] = true;
@@ -466,7 +524,7 @@ stock PracticeHandleMenu(playerid, response, listitem, const inputtext[])
         {
             if (!PracticeDraftCurrent(playerid) || PracticeDraftNew[playerid]) { PracticeDiscardDraft(playerid); return PracticeShowTargets(playerid); }
             new empty[E_PRACTICE_POINT];
-            PracticePoints[PracticeDraftSlot[playerid]] = empty;
+            PracticePoints[zone][PracticeDraftSlot[playerid]] = empty;
             PracticeDiscardDraft(playerid);
             PracticeConfigurationChanged(playerid);
             return PracticeShowTargets(playerid);
@@ -481,8 +539,8 @@ stock PracticeHandleMenu(playerid, response, listitem, const inputtext[])
                 case 3: return PracticeShowRuleInput(playerid, PracticePreparation);
                 case 4: return PracticeShowRuleInput(playerid, PracticeExposure);
                 case 5: return PracticeShowRuleInput(playerid, PracticeInterval);
-                case 6: PracticeRules[PracticeRandomOrder] = !PracticeRules[PracticeRandomOrder];
-                case 7: PracticeRules[PracticeRandomTypes] = !PracticeRules[PracticeRandomTypes];
+                case 6: PracticeRules[zone][PracticeRandomOrder] = !PracticeRules[zone][PracticeRandomOrder];
+                case 7: PracticeRules[zone][PracticeRandomTypes] = !PracticeRules[zone][PracticeRandomTypes];
                 default: return PracticeShowRules(playerid);
             }
             PracticeConfigurationChanged(playerid);
@@ -498,12 +556,12 @@ stock PracticeHandleMenu(playerid, response, listitem, const inputtext[])
         {
             if (listitem >= 0 && listitem < sizeof(PracticeWeaponNames))
             {
-                new mask = PracticeRules[PracticeWeaponMask] ^ (1 << listitem);
+                new mask = PracticeRules[zone][PracticeWeaponMask] ^ (1 << listitem);
                 if (!PracticeWeaponsValid(mask))
                     SendClientMessage(playerid, COLOR_FADE3, "Debes mantener al menos un arma permitida.");
                 else
                 {
-                    PracticeRules[PracticeWeaponMask] = mask;
+                    PracticeRules[zone][PracticeWeaponMask] = mask;
                     PracticeConfigurationChanged(playerid);
                 }
             }
@@ -513,8 +571,8 @@ stock PracticeHandleMenu(playerid, response, listitem, const inputtext[])
         case SP_MENU_RESET:
         {
             new empty[E_PRACTICE_POINT], defaults[E_PRACTICE_RULE] = {PRACTICE_WEAPON_DEFAULT, 1, 3, 5000, 1000, 0, 0, 0};
-            for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++) PracticePoints[slot] = empty;
-            PracticeRules = defaults;
+            for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++) PracticePoints[zone][slot] = empty;
+            PracticeRules[zone] = defaults;
             PracticeConfigurationChanged(playerid);
             return PracticeShowMain(playerid);
         }
@@ -529,16 +587,5 @@ Dialog:SP_Menu(playerid, response, listitem, inputtext[])
 
 CMD:practicaconfig(playerid, const params[])
 {
-    if (!IsPlayerAdmin(playerid) || IsPlayerNPC(playerid))
-        return SendClientMessage(playerid, COLOR_FADE3, "Necesitas ser administrador RCON para configurar la práctica.");
-    if (PracticeEditObject[playerid] != INVALID_STREAMER_ID)
-        return SendClientMessage(playerid, COLOR_GRAD1, "Confirma o cancela el editor visual antes de volver al menú.");
-    PracticeHideCatalogue(playerid);
-    if (!isnull(params)) SendClientMessage(playerid, COLOR_GRAD1, "La configuración se realiza desde este menú. Usa solo /practicaconfig.");
-    if (PracticeHasDraft(playerid))
-    {
-        if (PracticeDraftSlot[playerid] == 0) { PracticeDiscardDraft(playerid); return PracticeShowMain(playerid); }
-        return PracticeShowDraftMenu(playerid);
-    }
-    return PracticeShowMain(playerid);
+    return PracticeAdminCommand(playerid, params);
 }

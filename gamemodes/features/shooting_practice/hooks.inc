@@ -10,14 +10,25 @@ forward PracticePulse();
 public PracticePulse()
 {
     PracticeRepairPreviews();
-    PracticeTick(GetTickCount());
+    new now = GetTickCount();
+    for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
+        if (PracticeIsBusy(zone)) PracticeTick(zone, now);
     return 1;
 }
 
 hook OnGameModeInit()
 {
-    PracticeCleanup();
-    for (new playerid = 0; playerid < MAX_PLAYERS; playerid++) PracticeResetUI(playerid);
+    for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++) PracticeCleanup(zone);
+    for (new playerid = 0; playerid < MAX_PLAYERS; playerid++)
+    {
+        PracticeResetUI(playerid);
+        PracticeSelectedZone[playerid] = PracticePlayerZone[playerid] = -1;
+        PracticeSelectedZoneID[playerid] = 0;
+    }
+    PracticeInitializeRegistry();
+    // TODO(SP-DB-BOOTSTRAP): in database mode, load only after the host's shared
+    // connection is ready. Keep zone usage/editing gated until validated loading
+    // completes; the practice feature must not own credentials or a connection.
     PracticeLoadConfiguration();
     // One gamemode-owned pulse polls real deadlines. SA-MP timer delays never
     // shorten countdown pauses, exposure or decimal intervals.
@@ -30,7 +41,11 @@ hook OnGameModeExit()
     if (PracticePulseTimer) KillTimer(PracticePulseTimer);
     PracticePulseTimer = 0;
     for (new playerid = 0; playerid < MAX_PLAYERS; playerid++) PracticeResetUI(playerid);
-    PracticeCleanup();
+    // TODO(SP-DB-SHUTDOWN): snapshot active recorded evaluations as interrupted
+    // before cleanup; training stays unrecorded. Drain writes in the host's
+    // controlled shutdown before closing its connection; this final hook alone
+    // cannot guarantee completion of asynchronous queries.
+    for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++) PracticeCleanup(zone);
     return 1;
 }
 
@@ -58,39 +73,46 @@ hook OnPlayerWeaponShot(playerid, weaponid, hittype, hitid, Float:x, Float:y, Fl
 
 hook OnPlayerUpdate(playerid)
 {
-    if (PracticeIsBusy() && PracticeSession[PracticePlayer] == playerid)
-        PracticeParticipantValid();
+    new zone = PracticeGetPlayerZone(playerid);
+    if (zone >= 0) PracticeParticipantValid(zone);
     return 1;
 }
 
 hook OnPlayerDeath(playerid, killerid, reason)
 {
     PracticeResetUI(playerid);
-    if (PracticeIsBusy() && PracticeSession[PracticePlayer] == playerid)
-        PracticeEnd(false, "el participante murió.");
+    new zone = PracticeGetPlayerZone(playerid);
+    if (zone >= 0) PracticeEnd(zone, false, "el participante murió.");
     return 1;
 }
 
 hook OnPlayerDisconnect(playerid, reason)
 {
     PracticeResetUI(playerid);
-    if (PracticeIsBusy() && PracticeSession[PracticePlayer] == playerid)
-        PracticeEnd(false, "desconexión", false);
+    new zone = PracticeGetPlayerZone(playerid);
+    if (zone >= 0) PracticeEnd(zone, false, "desconexión", false);
+    PracticeSelectedZone[playerid] = PracticePlayerZone[playerid] = -1;
+    PracticeSelectedZoneID[playerid] = 0;
     return 1;
 }
 
 hook OnPlayerStateChange(playerid, newstate, oldstate)
 {
     if (newstate != PLAYER_STATE_ONFOOT) PracticeResetUI(playerid);
-    if (PracticeIsBusy() && PracticeSession[PracticePlayer] == playerid && newstate != PLAYER_STATE_ONFOOT)
-        PracticeEnd(false, "debes permanecer a pie.");
+    new zone = PracticeGetPlayerZone(playerid);
+    if (zone >= 0 && newstate != PLAYER_STATE_ONFOOT)
+        PracticeEnd(zone, false, "debes permanecer a pie.");
     return 1;
 }
 
 hook OnPlayerConnect(playerid)
 {
+    new zone = PracticeGetPlayerZone(playerid);
+    if (zone >= 0) PracticeCleanup(zone);
     PracticeHideCountdown(playerid);
     PracticeResetUI(playerid);
+    PracticeSelectedZone[playerid] = PracticePlayerZone[playerid] = -1;
+    PracticeSelectedZoneID[playerid] = 0;
     return 1;
 }
 

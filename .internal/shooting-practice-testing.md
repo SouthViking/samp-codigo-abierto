@@ -1,8 +1,9 @@
 # Configurar y probar las prácticas de tiro
 
-Estado local al 7 de octubre de 2026: servidor apagado a petición del usuario. Los últimos ajustes compilados y probados se cargarán en el próximo inicio solicitado.
-
-Actualizado: 2026-10-07. Un puesto, hasta diez blancos y un participante por ronda.
+Actualizado: 2026-10-08. Hasta 64 zonas independientes por defecto, diez blancos por zona,
+un participante por zona y una ronda por jugador. Las zonas archivadas cuentan para ese límite.
+Esta entrega está compilada y probada en un servidor aislado; no inicia ni reinicia tu servidor jugable.
+Todas las zonas actuales son públicas. Facciones, historial y supervisión quedan para la siguiente integración.
 
 ## Entrar y abrir la configuración
 
@@ -14,8 +15,12 @@ Actualizado: 2026-10-07. Un puesto, hasta diez blancos y un participante por ron
    Acceso-RCON.txt contiene el comando de acceso.
 4. Estando vivo y a pie, escribe **/practicaconfig**, sin argumentos.
 
-Los puntos anteriores se recuperan automáticamente. Los antiguos argumentos de configuración
-solo abren el menú y ya no modifican datos.
+/practicaconfig muestra las zonas existentes, con diez por página. Selecciona una o usa
+**/practicaconfig <ID>** para abrirla directamente. Los IDs son estables y no se reutilizan al archivar.
+Un archivo anterior se recupera como **zona #1: Campo de tiro**, conservando sus puntos y reglas.
+Una instalación nueva empieza sin zonas: elige **Crear zona**, escribe su nombre y configúrala.
+Las zonas nuevas quedan **inactivas** hasta que completes la configuración y elijas **Activar zona**.
+El comando acepta solo un ID numérico positivo como argumento.
 
 | Opción | Función |
 | --- | --- |
@@ -26,14 +31,19 @@ solo abren el menú y ya no modifican datos.
 | Iniciar práctica | Aparece si el puesto está listo, estás en el inicio y equipas un arma permitida. |
 | Cancelar práctica | Aparece durante tu ronda activa. |
 | Reiniciar configuración | Borrar inicio y blancos y restaurar reglas, con confirmación. |
-| Reintentar guardado | Solo aparece si falló la escritura del archivo. |
+| Reintentar guardado | Aparece si falló la escritura; también está en el listado general. |
+| Nombre de la zona | Cambiar el nombre, hasta 48 caracteres, sin códigos de color. |
+| Activar / Desactivar zona | Abrir o cerrar la zona para nuevas prácticas; debe estar libre. |
+| Archivar zona | Retirar del listado y uso con confirmación; conservar ID y configuración. |
 
-El título principal es **Campo de tiro**. Iniciar práctica aparece solo cuando puedes iniciar, sin un detalle largo.
+El título principal es **Zona #ID: Nombre**. **Zonas** vuelve al listado.
+Iniciar práctica aparece solo si la zona está activa y puedes iniciar.
 La vista previa está disponible desde el menú principal. Las condiciones se comprueban de nuevo al seleccionar Iniciar.
 
 ## Partir de cero y marcar el inicio
 
-1. Para borrar el montaje anterior, elige **Reiniciar configuración > Reiniciar**.
+1. Crea/abre la zona que quieres configurar. Para borrar solo su montaje, elige **Reiniciar configuración > Reiniciar**.
+   El ID y nombre se conservan; la zona queda inactiva.
 2. Camina al lugar desde el que se disparará y mira hacia la zona de blancos.
 3. Selecciona **Punto de inicio** en el menú principal. Guarda inmediatamente tu posición y orientación,
    sin abrir un submenú, y vuelve al menú principal.
@@ -54,7 +64,7 @@ La vista previa está disponible desde el menú principal. Las condiciones se co
    Para probar usa 8-15 metros y orienta la cara hacia el puesto.
 6. **Confirmar en el editor guarda todos los cambios**. **Cancelar descarta toda la edición**
    y conserva lo anterior. Si era un blanco nuevo, no se añade.
-7. Repite con dos blancos de disparo y uno de no disparo.
+7. Repite con dos blancos de disparo y uno de no disparo. Ajusta las reglas y elige **Activar zona** en su menú principal.
 
 Para editar uno existente selecciona su fila: Nombre, Objeto, Comportamiento, Mover y orientar,
 Duplicar blanco, Eliminar blanco y, al final, Guardar cambios. El nombre admite 32 caracteres. Escribe
@@ -64,7 +74,8 @@ pendientes hasta Guardar cambios o confirmar el editor. Descartar conserva el bl
 Duplicar abre el editor con una copia. Confirmar usa un espacio libre sin alterar el original.
 Eliminar exige confirmación. Máximo diez blancos. Si no aparece el editor, acércate al blanco.
 Termina cualquier otro editor de objetos antes de abrirlo. Solo un administrador puede editar
-el puesto a la vez. Las rondas esperan hasta que guarde o descarte.
+cada zona a la vez. Sus rondas esperan hasta que guarde o descarte. Puedes editar otra zona
+mientras hay una ronda en curso; los borradores y bloqueos son independientes.
 
 Al abrir Blancos aparecen automáticamente los blancos guardados y el inicio, solo para ti.
 Siguen visibles en los diálogos, el catálogo y el editor. El blanco que estás moviendo sustituye
@@ -84,10 +95,12 @@ de 100 metros del anterior. El radio de 100 metros limita la colocación de blan
 3. Solo tú ves estos elementos. No hay ronda, sonidos ni puntuación.
    Los impactos se bloquean y el objeto alcanzado se repone para evitar que quede desaparecido.
    La reposición también funciona en la vista automática de configuración.
-4. Abre /practicaconfig y selecciona **Ocultar vista previa** para retirarlos.
+4. Abre **/practicaconfig <ID de la misma zona>** y selecciona **Ocultar vista previa** para retirarlos.
+   Abrir el listado general o cambiar de zona también retira tu vista.
 
 La vista se limpia al desconectarte, morir, entrar en un vehículo o cambiar de interior/mundo.
-Guardar cambios actualiza las vistas sin retirar los blancos que no cambiaron. Iniciar una práctica retira todas las vistas previas.
+Guardar cambios actualiza las vistas de esa zona sin retirar los blancos que no cambiaron.
+Iniciar una práctica retira las vistas de su zona y la del participante; otras zonas mantienen sus vistas.
 
 ## Reglas y primera ronda
 
@@ -135,7 +148,9 @@ El comando mueve al personaje. El inicio se marca desde Punto de inicio en /prac
 1. Vuelve al inicio, a menos de 1.5 metros.
 2. En este servidor de desarrollo, obtén la Desert Eagle con **/creararma 24 100 0** y equípala.
    Para probar el cambio de arma, permite también M4 y obtén una con **/creararma 31 100 0**.
-3. Usa **/practica**, o Iniciar práctica desde el menú.
+3. Usa **/practica**, o Iniciar práctica desde el menú. Si coinciden varios inicios se abre un listado
+   para elegir. También puedes usar **/practica <ID>**, estando junto al inicio de esa zona.
+   **/practica ayuda** muestra sus reglas; **/practica cancelar** termina solo tu ronda.
 4. Verás **Comienza en 3, 2, 1** en pantalla, con un pitido por segundo. El contador desaparece
    al aparecer el primer blanco. Oirás otro pitido en cada aparición. Ambos comportamientos usan
    el mismo pitido. Cajas: roja DISPARAR, azul NO DISPARAR. Las siluetas conservan sus texturas:
@@ -178,14 +193,21 @@ Sonidos y acciones de rol se limitan a 10 metros del puesto en su mismo interior
 - Formatos 1 a 4 conservan posiciones y reglas, y su arma se mantiene como única permitida.
   Los formatos 1 a 3 usan caja 1271 con rotaciones X/Y cero. El 4 conserva modelos y rotaciones completos.
   El formato 5 conserva las múltiples armas. Los formatos 1 a 5 convierten exposición e intervalo
-  de segundos a milisegundos al cargar. El siguiente guardado usa formato 6 y conserva las décimas.
-  Cargar no reescribe el archivo.
-- Si falla la escritura, Sin guardar y Reintentar guardado permiten guardar lo que sigue en memoria
-  antes de reiniciar. La escritura no es transaccional.
+  de segundos a milisegundos al cargar. El formato 6 conserva las décimas.
+  Todos migran a zona #1 pública. Si están incompletos, se conservan inactivos.
+  El siguiente guardado usa formato 7 con todas las zonas, nombres, estados e IDs. Cargar no reescribe el archivo.
+- El guardado valida primero un archivo .tmp, conserva una copia válida .bak y comprueba el archivo final.
+  Si el principal está dañado, la carga puede recuperar el respaldo y muestra **Reintentar guardado**
+  para reparar el principal. No hay un renombrado atómico nativo: conserva respaldos externos.
+  Si ningún archivo es válido, se bloquean la creación y las modificaciones para no sobrescribir los datos.
+  Corrige/restaura los archivos con el servidor detenido antes de volver a cargar.
+- Si falla la escritura, **Reintentar guardado** permite guardar los cambios que siguen en memoria.
+  Está disponible en el listado incluso después de archivar. Reiniciar con cambios pendientes puede perderlos.
 - Para que aparezca Iniciar práctica debe existir un blanco de tiro y los puntos y errores deben respetar
   sus cantidades. También debes estar vivo, a pie, cerca del inicio y con un arma permitida.
   El puesto debe estar libre y nadie puede estar editándolo. /practica explica qué falta si intentas iniciar.
-  Durante una ronda no se puede cambiar la configuración.
+  Durante una ronda no se puede cambiar esa zona. Cambiar un inicio o borrar blancos puede dejarla
+  incompleta: se desactiva automáticamente; corrige sus reglas/distancias y vuelve a activarla.
 - Comprueba en el cliente: catálogo, mover/girar/confirmar/cancelar, checkpoint, etiquetas,
   colisiones de siluetas, tildes, posición del contador y sonidos. Dispara a cada modelo en la vista previa
   y comprueba que se repone sin desaparecer el resto. El motor puede mostrar brevemente su rotura.
@@ -197,12 +219,24 @@ Sonidos y acciones de rol se limitan a 10 metros del puesto en su mismo interior
   Prueba exposición 0.5 e intervalo 0.2, guarda y revisa esos valores después de un reinicio solicitado. Con dos jugadores confirma la privacidad del preview y que
   ambos pueden observar el blanco de una ronda real y el aviso de abandono. Solo el participante ve
   el contador y sus resultados. Reinicia y revisa nombres/modelos/rotaciones y armas seleccionadas.
-- **606 comprobaciones automáticas sin fallos** y compilación completa de esta versión.
-  El servidor sigue activo en 127.0.0.1:7777 con la versión del último reinicio solicitado.
-  La corrección de marcar el inicio y el comando /irpruebas están cargados y la configuración se conservó.
-  Los ajustes posteriores de veredicto, porcentaje, orden del guardado, tipo de blanco y mensaje
-  de cancelación están compilados y probados, pendientes del próximo reinicio solicitado.
-  El servidor no se reinicia automáticamente durante tus pruebas.
-  Los controles, renderizado y audio del cliente siguen siendo comprobaciones manuales.
+- **745 comprobaciones automáticas sin fallos**, ejecutadas en SA-MP 0.3.DL-R1 Linux con sscanf 2.13.1,
+  y compilación de módulo y gamemode completos. Los controles, renderizado, audio y el despacho real
+  de callbacks del cliente siguen siendo comprobaciones manuales. No se desplegó ni reinició el servidor jugable.
 
-Alcance: un puesto, sin historial, facciones, permisos por rango, varias instalaciones ni assets propios.
+## Comprobar varias zonas
+
+1. Crea una segunda zona con otro nombre e inicio, y coloca sus blancos. Activa ambas.
+2. Con dos jugadores, inicia una práctica en cada una. Cada participante debe tener su contador,
+   secuencia y resumen; acertar, cancelar, morir o desconectarse en una no debe terminar la otra.
+3. Con RCON, intenta modificar la zona ocupada: debe bloquearse. Configura la otra cuando quede libre.
+   Sus reglas, blancos y vistas no deben cambiar en la primera.
+4. Si dos inicios coinciden, usa /practica sin RCON y elige por ID. Debe mantener las comprobaciones de
+   distancia, mundo, interior, arma y ocupación. Una misma persona no puede iniciar dos rondas.
+5. Archiva una zona libre y comprueba que desaparece del listado y no admite /practica <ID>.
+   El ID se conserva en el archivo y la siguiente creación recibe un ID nuevo.
+6. Tras un reinicio solicitado, revisa ambos montajes, nombres, estados e IDs. El campo legado
+   debe conservarse como #1. Prueba el acceso directo a la configuración por ID.
+
+Alcance actual: múltiples zonas públicas y administración RCON, sin BD, historial, facciones/rangos,
+certificaciones ni assets propios. Las evaluaciones y la supervisión están descritas en el modelo SQL;
+/evaluaciontiro aún no está habilitado.

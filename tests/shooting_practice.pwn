@@ -1,8 +1,12 @@
 // Run as a separate SA-MP gamemode with sscanf 2.13.1 (never on the live server).
 // Player, clock and streamer adapters are simulated; Pawn logic, parsing and file I/O are real.
 #include <a_samp>
+// Bound the production loops to the five simulated player slots in this harness.
+#undef MAX_PLAYERS
+#define MAX_PLAYERS (5)
 #include <sscanf2>
 #pragma warning disable 203
+#pragma dynamic 8192
 
 #define CMD:%0(%1) stock TestCommand_%0(%1)
 #define Dialog:%0(%1) forward dialog_%0(%1); public dialog_%0(%1)
@@ -28,7 +32,7 @@
 #define mS_SPRITE_DIM_Y 70.0
 
 new TestNow, TestFailures, TestAssertions;
-new bool:TestConnected[TEST_PLAYERS], bool:TestAdmin[TEST_PLAYERS];
+new bool:TestConnected[TEST_PLAYERS], bool:TestAdmin[TEST_PLAYERS], bool:TestNPC[TEST_PLAYERS];
 new TestState[TEST_PLAYERS], TestWeapon[TEST_PLAYERS], TestAmmo[TEST_PLAYERS][13], TestSlotWeapon[TEST_PLAYERS][13], TestWorld[TEST_PLAYERS], TestInterior[TEST_PLAYERS];
 new Float:TestPosition[TEST_PLAYERS][3], Float:TestHealth[TEST_PLAYERS];
 new bool:TestObjects[256], TestNextObject, TestLiveObjects;
@@ -152,7 +156,7 @@ stock va_SendClientMessage(playerid, color, const message[], {Float,_}:...)
     return 1;
 }
 stock TestIsConnected(playerid) { return playerid >= 0 && playerid < TEST_PLAYERS && TestConnected[playerid]; }
-stock TestIsNPC(playerid) { return 0; }
+stock TestIsNPC(playerid) { return TestNPC[playerid]; }
 stock TestIsAdmin(playerid) { return TestAdmin[playerid]; }
 stock TestGetState(playerid) { return TestState[playerid]; }
 stock TestGetWeapon(playerid) { return TestWeapon[playerid]; }
@@ -269,9 +273,7 @@ stock TestRandom(maximum)
 #define PlayerTextDrawSetString TestTDString
 
 #include "../gamemodes/features/shooting_practice/config.inc"
-#define fopen TestStorageOpen
-#include "../gamemodes/features/shooting_practice/storage.inc"
-#undef fopen
+#include "../gamemodes/features/shooting_practice/registry.inc"
 #include "../gamemodes/features/shooting_practice/sequence.inc"
 // Capture the typed result at the presentation boundary, then run the actual
 // formatter. Scoring assertions do not depend on translated chat wording.
@@ -282,7 +284,11 @@ stock TestRandom(maximum)
 #include "../gamemodes/features/shooting_practice/presentation.inc"
 #undef PracticeSendResultLine
 #include "../gamemodes/features/shooting_practice/editor.inc"
+#define fopen TestStorageOpen
+#include "../gamemodes/features/shooting_practice/storage.inc"
+#undef fopen
 #include "../gamemodes/features/shooting_practice/setup.inc"
+#include "../gamemodes/features/shooting_practice/zone_setup.inc"
 
 stock TestRecordResult(playerid, bool:completed, const result[E_PRACTICE_SESSION], const reason[])
 {
@@ -306,9 +312,15 @@ stock TestPlaySound(playerid, soundid, Float:x, Float:y, Float:z)
         TestSoundTimes[playerid][TestSoundCount[playerid]] = TestNow;
     }
     TestSoundCount[playerid]++;
-    if (soundid == PRACTICE_SOUND_TARGET && (TestStreamedObject != PracticeSession[PracticeObject]
-        || !TestVisible || (TestObjectModels[PracticeSession[PracticeObject]] == PRACTICE_TARGET_MODEL
-            && !TestMaterialColours[PracticeSession[PracticeObject]]))) TestCueBeforeReady = true;
+    if (soundid == PRACTICE_SOUND_TARGET)
+    {
+        new bool:ready;
+        for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
+            if (PracticeIsBusy(zone) && PracticeSession[zone][PracticeObject] == TestStreamedObject
+                && TestObjectValid(TestStreamedObject) && TestVisible
+                && (TestObjectModels[TestStreamedObject] != PRACTICE_TARGET_MODEL || TestMaterialColours[TestStreamedObject])) ready = true;
+        if (!ready) TestCueBeforeReady = true;
+    }
     return 1;
 }
 
@@ -319,7 +331,7 @@ stock Check(bool:condition, const label[])
 }
 stock ResetTest(targets = 3)
 {
-    PracticeCleanup();
+    for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++) PracticeCleanup(zone);
     new bool:noTextdraws = true;
     for (new playerid = 0; playerid < TEST_PLAYERS; playerid++)
     {
@@ -328,23 +340,35 @@ stock ResetTest(targets = 3)
     }
     Check(noTextdraws, "cleanup releases every owned textdraw");
     Check(TestLiveObjects == 0 && !TestLiveCP && !TestLiveLabels, "cleanup leaves no objects, checkpoints or labels");
-    PracticeRevision = 0; PracticeSavePending = false;
+    PracticeInitializeRegistry();
+    PracticeCreateZone("Campo de tiro");
+    PracticeZoneEnabled[0] = true;
+    PracticeRevision[0] = 0;
+    for (new playerid = 0; playerid < TEST_PLAYERS; playerid++)
+    {
+        PracticeSelectedZone[playerid] = 0;
+        PracticeSelectedZoneID[playerid] = 1;
+        PracticeMenuPage[playerid] = SP_MENU_NONE;
+        PracticePlayerZone[playerid] = -1;
+        TestDialogTitle[playerid][0] = TestDialogBody[playerid][0] = EOS;
+    }
+    fremove(PRACTICE_CONFIG_FILE); fremove(PRACTICE_CONFIG_TEMP); fremove(PRACTICE_CONFIG_BACKUP);
     new empty[E_PRACTICE_POINT];
     for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++)
     {
-        PracticePoints[slot] = empty;
+        PracticePoints[0][slot] = empty;
         if (slot <= targets)
         {
-            PracticePoints[slot][PracticePointSet] = true;
-            PracticePoints[slot][PracticePointX] = float(slot * 8);
-            if (slot) PracticePoints[slot][PracticePointModel] = PRACTICE_TARGET_MODEL;
+            PracticePoints[0][slot][PracticePointSet] = true;
+            PracticePoints[0][slot][PracticePointX] = float(slot * 8);
+            if (slot) PracticePoints[0][slot][PracticePointModel] = PRACTICE_TARGET_MODEL;
         }
     }
     new defaults[E_PRACTICE_RULE] = {PRACTICE_WEAPON_DEFAULT, 1, 3, 5000, 1000, 0, 0, 0};
-    PracticeRules = defaults;
+    PracticeRules[0] = defaults;
     for (new playerid = 0; playerid < TEST_PLAYERS; playerid++)
     {
-        TestConnected[playerid] = true; TestAdmin[playerid] = true;
+        TestConnected[playerid] = true; TestAdmin[playerid] = true; TestNPC[playerid] = false;
         TestState[playerid] = PLAYER_STATE_ONFOOT; TestWeapon[playerid] = 24;
         for (new slot = 0; slot < 13; slot++) { TestSlotWeapon[playerid][slot] = 0; TestAmmo[playerid][slot] = 0; }
         TestSlotWeapon[playerid][2] = 24; TestAmmo[playerid][2] = 30;
@@ -366,37 +390,37 @@ stock ResetTest(targets = 3)
 }
 stock ShowFirstTarget()
 {
-    PracticeStart(0);
-    TestNow += PracticeRules[PracticePreparation] * 1000;
-    PracticeTick(TestNow);
-    Check(PracticeSession[PracticePhase] == PRACTICE_TARGET, "first target appears after countdown");
+    PracticeStart(0, 0);
+    TestNow += PracticeRules[0][PracticePreparation] * 1000;
+    PracticeTick(0, TestNow);
+    Check(PracticeSession[0][PracticePhase] == PRACTICE_TARGET, "first target appears after countdown");
 }
 stock Shoot(bool:hit, playerid = 0)
 {
     PracticeHandleShot(playerid, 24, hit ? BULLET_HIT_TYPE_PLAYER_OBJECT : BULLET_HIT_TYPE_NONE,
-        1000 + playerid * 100 + PracticeSession[PracticeObject], TestNow);
+        1000 + playerid * 100 + PracticeSession[0][PracticeObject], TestNow);
 }
 stock AdvanceInterval()
 {
-    TestNow += PracticeRules[PracticeInterval];
-    PracticeTick(TestNow);
+    TestNow += PracticeRules[0][PracticeInterval];
+    PracticeTick(0, TestNow);
 }
 
 stock bool:TestSequenceValid(const slots[PRACTICE_MAX_TARGETS], const bool:noShoot[PRACTICE_MAX_TARGETS], total)
 {
-    if (total != PracticeCountTargets()) return false;
+    if (total != PracticeCountTargets(0)) return false;
     new visited, noShootCount;
     for (new index = 0; index < total; index++)
     {
         new slot = slots[index];
-        if (slot < 1 || slot > PRACTICE_MAX_TARGETS || !PracticePoints[slot][PracticePointSet]) return false;
+        if (slot < 1 || slot > PRACTICE_MAX_TARGETS || !PracticePoints[0][slot][PracticePointSet]) return false;
         if (visited & (1 << slot)) return false;
         visited |= 1 << slot;
         if (noShoot[index]) noShootCount++;
     }
     for (new index = total; index < PRACTICE_MAX_TARGETS; index++)
         if (slots[index] || noShoot[index]) return false;
-    return noShootCount == PracticeCountNoShootTargets();
+    return noShootCount == PracticeCountNoShootTargets(0);
 }
 
 // Legacy score scenarios place the no-shoot targets last. Other tests below
@@ -405,10 +429,10 @@ stock TestSetNoShoot(count)
 {
     for (new slot = PRACTICE_MAX_TARGETS; slot > 0; slot--)
     {
-        PracticePoints[slot][PracticePointNoShoot] = false;
-        if (PracticePoints[slot][PracticePointSet] && count > 0)
+        PracticePoints[0][slot][PracticePointNoShoot] = false;
+        if (PracticePoints[0][slot][PracticePointSet] && count > 0)
         {
-            PracticePoints[slot][PracticePointNoShoot] = true;
+            PracticePoints[0][slot][PracticePointNoShoot] = true;
             count--;
         }
     }
@@ -416,6 +440,8 @@ stock TestSetNoShoot(count)
 
 stock TestWriteConfigFixture(const header[], const rules[], types = 0, invalidSlot = -1, invalidType = 2, positions = 14)
 {
+    // Each parser case deliberately has no recovery file; recovery has its own suite.
+    fremove(PRACTICE_CONFIG_BACKUP); fremove(PRACTICE_CONFIG_TEMP);
     new File:fixture = fopen(PRACTICE_CONFIG_FILE, io_write);
     fwrite(fixture, header); fwrite(fixture, "\r\n");
     fwrite(fixture, rules); fwrite(fixture, "\r\n");
@@ -448,24 +474,24 @@ stock TestPresentation()
 {
     ResetTest();
     TestPosition[2][0] = 50.0; TestWorld[3] = 1; TestInterior[4] = 1;
-    PracticeStart(0);
+    PracticeStart(0, 0);
     Check(TestSoundCount[0] == 1 && TestSounds[0][0] == PRACTICE_SOUND_COUNTDOWN, "initial countdown beep");
     Check(TestSoundCount[1] == 1 && TestSoundCount[2] == 0 && TestSoundCount[3] == 0 && TestSoundCount[4] == 0,
         "sounds filtered by distance, world and interior");
     Check(TestMessages[0] == 1 && TestMessages[1] == 1 && !TestMessages[2] && !TestMessages[3] && !TestMessages[4],
         "one nearby roleplay start, no private start chatter");
     Check(strfind(TestLastMessage[0], "* Test Player 0 se prepara") == 0, "start uses roleplay name and action format");
-    TestNow = 1500; PracticeTick(TestNow);
+    TestNow = 1500; PracticeTick(0, TestNow);
     Check(TestSoundCount[0] == 1, "half-second tick does not duplicate countdown");
-    TestNow = 2000; PracticeTick(TestNow); PracticeTick(TestNow);
+    TestNow = 2000; PracticeTick(0, TestNow); PracticeTick(0, TestNow);
     Check(TestSoundCount[0] == 2 && TestSounds[0][1] == PRACTICE_SOUND_COUNTDOWN, "second countdown cue once");
-    TestNow = 3000; PracticeTick(TestNow);
+    TestNow = 3000; PracticeTick(0, TestNow);
     Check(TestSoundCount[0] == 3 && TestSounds[0][2] == PRACTICE_SOUND_COUNTDOWN, "third countdown cue");
-    TestNow = 4000; PracticeTick(TestNow);
+    TestNow = 4000; PracticeTick(0, TestNow);
     Check(TestSoundCount[0] == 4 && TestSounds[0][3] == PRACTICE_SOUND_TARGET, "first appearance is the sole start signal");
     Check(!TestCueBeforeReady, "target cue follows markings and streaming");
-    Check(TestMaterialColours[PracticeSession[PracticeObject]] == PRACTICE_SHOOT_MATERIAL
-        && !strcmp(TestMaterialText[PracticeSession[PracticeObject]], "DISPARAR"), "shoot target is red and labelled");
+    Check(TestMaterialColours[PracticeSession[0][PracticeObject]] == PRACTICE_SHOOT_MATERIAL
+        && !strcmp(TestMaterialText[PracticeSession[0][PracticeObject]], "DISPARAR"), "shoot target is red and labelled");
     Shoot(true);
     Check(TestSoundCount[0] == 4 && TestMessages[0] == 1, "hits produce no chat or extra sound");
     AdvanceInterval();
@@ -473,13 +499,13 @@ stock TestPresentation()
     TestCommand_practica(0, "cancelar");
     Check(TestSoundCount[0] == 6 && TestSounds[0][5] == PRACTICE_SOUND_END, "cancellation closes with a distinct cue");
     Check(TestPrivateMessages[0] == 1 && !TestPrivateMessages[1] && TestMessages[1] == 2, "only participant receives interruption reason");
-    TestNow += 60000; PracticeTick(TestNow); PracticeEnd(false, "repeat");
+    TestNow += 60000; PracticeTick(0, TestNow); PracticeEnd(0, false, "repeat");
     Check(TestSoundCount[0] == 6 && TestLiveObjects == 0, "no stale beeps or duplicate closure after cancellation");
-    PracticeStart(0);
+    PracticeStart(0, 0);
     Check(TestSoundCount[0] == 7 && TestSounds[0][6] == PRACTICE_SOUND_COUNTDOWN, "immediate retry starts a fresh countdown");
 
-    ResetTest(1); PracticeRules[PracticePreparation] = 5; PracticeStart(0);
-    for (new second = 1; second <= 5; second++) { TestNow += 1000; PracticeTick(TestNow); }
+    ResetTest(1); PracticeRules[0][PracticePreparation] = 5; PracticeStart(0, 0);
+    for (new second = 1; second <= 5; second++) { TestNow += 1000; PracticeTick(0, TestNow); }
     Check(TestSoundCount[0] == 6 && TestSounds[0][4] == PRACTICE_SOUND_COUNTDOWN
         && TestSounds[0][5] == PRACTICE_SOUND_TARGET, "countdown respects configured duration");
     Shoot(true);
@@ -490,11 +516,11 @@ stock TestPresentation()
         "only approved word is green, label and trailing score are white, accuracy has a percent sign");
     Check(TestLongestMessage < 144, "each result line fits the chat limit");
 
-    ResetTest(1); PracticeStart(0); TestNow += 2500; PracticeTick(TestNow);
+    ResetTest(1); PracticeStart(0, 0); TestNow += 2500; PracticeTick(0, TestNow);
     Check(TestSoundCount[0] == 2, "delayed tick skips missed countdown cues instead of bursting");
-    TestNow += 500; PracticeTick(TestNow);
-    Check(PracticeSession[PracticePhase] == PRACTICE_COUNTDOWN, "late last countdown cue gets a full second before start");
-    TestNow += 500; PracticeTick(TestNow); Shoot(true);
+    TestNow += 500; PracticeTick(0, TestNow);
+    Check(PracticeSession[0][PracticePhase] == PRACTICE_COUNTDOWN, "late last countdown cue gets a full second before start");
+    TestNow += 500; PracticeTick(0, TestNow); Shoot(true);
     Check(TestSoundCount[0] == 4 && !TestCueBeforeReady, "late tick still produces one appearance and one closure");
     ResetTest(1); TestMaterialFails = true; ShowFirstTargetFailure();
     Check(TestResult == 3 && !TestLiveObjects && TestSoundCount[0] == 2
@@ -502,26 +528,26 @@ stock TestPresentation()
     ResetTest(1); TestVisible = false; ShowFirstTargetFailure();
     Check(TestResult == 3 && !TestCueBeforeReady && TestSoundCount[0] == 2, "streaming failure never plays appearance cue");
 
-    ResetTest(); ShowFirstTarget(); TestConnected[0] = false; PracticeTick(TestNow);
+    ResetTest(); ShowFirstTarget(); TestConnected[0] = false; PracticeTick(0, TestNow);
     Check(TestSoundCount[0] == 2 && TestSoundCount[1] == 3 && TestMessages[1] == 2,
         "disconnect closes the station for nearby observers without messaging the disconnected player");
-    ResetTest(); ShowFirstTarget(); TestWorld[0] = 1; PracticeTick(TestNow);
+    ResetTest(); ShowFirstTarget(); TestWorld[0] = 1; PracticeTick(0, TestNow);
     Check(TestSoundCount[0] == 2 && TestSoundCount[1] == 3, "closure remains anchored to original station dimension");
 }
 
 stock ShowFirstTargetFailure()
 {
-    PracticeStart(0); TestNow += PracticeRules[PracticePreparation] * 1000; PracticeTick(TestNow);
+    PracticeStart(0, 0); TestNow += PracticeRules[0][PracticePreparation] * 1000; PracticeTick(0, TestNow);
 }
 
 stock TestNoShootScoring()
 {
     ResetTest(3); TestSetNoShoot(1); ShowFirstTarget();
-    Shoot(true); AdvanceInterval(); TestNow += 5000; PracticeTick(TestNow); AdvanceInterval();
-    Check(PracticeSession[PracticeNoShoot] && TestMaterialColours[PracticeSession[PracticeObject]] == PRACTICE_NO_SHOOT_MATERIAL
-        && !strcmp(TestMaterialText[PracticeSession[PracticeObject]], "NO DISPARAR"), "no-shoot target is blue with a distinct label");
+    Shoot(true); AdvanceInterval(); TestNow += 5000; PracticeTick(0, TestNow); AdvanceInterval();
+    Check(PracticeSession[0][PracticeNoShoot] && TestMaterialColours[PracticeSession[0][PracticeObject]] == PRACTICE_NO_SHOOT_MATERIAL
+        && !strcmp(TestMaterialText[PracticeSession[0][PracticeObject]], "NO DISPARAR"), "no-shoot target is blue with a distinct label");
     Check(TestSounds[0][TestSoundCount[0] - 1] == PRACTICE_SOUND_TARGET, "no-shoot appearance uses identical sound");
-    TestNow += 5000; PracticeTick(TestNow);
+    TestNow += 5000; PracticeTick(0, TestNow);
     Check(TestResult == 1 && TestResultHits == 1 && TestResultExpired == 1 && TestResultIgnored == 1 && !TestResultErrors,
         "ignoring no-shoot is correct, not an omission");
     Check(TestResultHits + TestResultExpired == TestResultShootTotal
@@ -529,29 +555,29 @@ stock TestNoShootScoring()
 
     ResetTest(3); TestSetNoShoot(2); ShowFirstTarget(); Shoot(true); AdvanceInterval();
     Shoot(true, 1);
-    Check(!PracticeSession[PracticeIdentificationErrors] && TestLiveObjects == 1, "bystander cannot penalize no-shoot target");
+    Check(!PracticeSession[0][PracticeIdentificationErrors] && TestLiveObjects == 1, "bystander cannot penalize no-shoot target");
     Shoot(true);
-    Check(PracticeIsBusy() && PracticeSession[PracticeHits] == 1 && PracticeSession[PracticeIdentificationErrors] == 1,
+    Check(PracticeIsBusy(0) && PracticeSession[0][PracticeHits] == 1 && PracticeSession[0][PracticeIdentificationErrors] == 1,
         "no-shoot impact adds one error, no point, and continues the exercise");
     Shoot(true);
-    Check(PracticeSession[PracticeIdentificationErrors] == 1 && PracticeSession[PracticeShots] == 3,
+    Check(PracticeSession[0][PracticeIdentificationErrors] == 1 && PracticeSession[0][PracticeShots] == 3,
         "repeat impact in interval does not duplicate identification error");
-    AdvanceInterval(); TestNow += 5000; PracticeTick(TestNow);
+    AdvanceInterval(); TestNow += 5000; PracticeTick(0, TestNow);
     Check(TestResult == 2 && TestResultHits == 1 && TestResultErrors == 1 && TestResultIgnored == 1,
         "identification error fails default zero-error goal even with sufficient hits");
     Check(strfind(TestChat[0], "Precisión: 33.3%") != -1 && strfind(TestChat[0], "Errores de identificación: 1") != -1,
         "all shots remain in precision denominator and summary includes errors");
 
-    ResetTest(3); TestSetNoShoot(1); PracticeRules[PracticeMaxErrors] = 1;
+    ResetTest(3); TestSetNoShoot(1); PracticeRules[0][PracticeMaxErrors] = 1;
     ShowFirstTarget(); Shoot(true); AdvanceInterval(); Shoot(true); AdvanceInterval(); Shoot(true);
     Check(TestResult == 1 && TestResultErrors == 1 && TestResultHits == 2 && TestResultPoints == 1,
         "configured error allowance still requires sufficient net points");
-    ResetTest(2); TestSetNoShoot(1); PracticeRules[PracticeMaxErrors] = 1;
+    ResetTest(2); TestSetNoShoot(1); PracticeRules[0][PracticeMaxErrors] = 1;
     ShowFirstTarget(); Shoot(true); AdvanceInterval(); Shoot(false);
     Check(TestResult == 2 && TestResultErrors == 1 && TestResultPoints == 0 && TestResultShots == 2,
         "air shot during no-shoot subtracts a point and can fail even within error allowance");
     ResetTest(2); TestSetNoShoot(1); ShowFirstTarget();
-    TestNow += 5000; PracticeTick(TestNow); AdvanceInterval(); Shoot(false);
+    TestNow += 5000; PracticeTick(0, TestNow); AdvanceInterval(); Shoot(false);
     Check(TestResult == 2 && TestResultPoints == -1 && TestResultExpired == 1 && TestResultErrors == 1
         && strfind(TestChat[0], "Puntuación neta: -1") != -1, "negative score is retained and reported for trigger error without any hits");
     ResetTest(2); TestSetNoShoot(1); ShowFirstTarget(); Shoot(true); AdvanceInterval();
@@ -564,13 +590,13 @@ stock TestNoShootScoring()
         "hit at final no-shoot deadline cannot turn correct restraint into an error");
     ResetTest(3); TestSetNoShoot(2); ShowFirstTarget(); Shoot(true); AdvanceInterval();
     TestNow += 5000; Shoot(true);
-    Check(PracticeSession[PracticeCorrectIgnores] == 1 && !PracticeSession[PracticeIdentificationErrors]
-        && PracticeSession[PracticeShots] == 2, "late intermediate no-shoot hit counts only as a gap shot");
+    Check(PracticeSession[0][PracticeCorrectIgnores] == 1 && !PracticeSession[0][PracticeIdentificationErrors]
+        && PracticeSession[0][PracticeShots] == 2, "late intermediate no-shoot hit counts only as a gap shot");
     TestCommand_practica(0, "cancelar");
     Check(TestResult == 3 && TestResultIgnored == 1 && !TestResultErrors && !TestResultExpired,
         "cancellation never classifies unpresented targets");
     ResetTest(2); TestSetNoShoot(1); ShowFirstTarget();
-    Shoot(false); TestNow += 5000; PracticeTick(TestNow); AdvanceInterval(); TestNow += 5000; PracticeTick(TestNow);
+    Shoot(false); TestNow += 5000; PracticeTick(0, TestNow); AdvanceInterval(); TestNow += 5000; PracticeTick(0, TestNow);
     Check(TestResult == 2 && !TestResultHits && TestResultExpired == 1 && TestResultIgnored == 1,
         "ignoring every target does not satisfy required shoot hits");
 }
@@ -578,58 +604,58 @@ stock TestNoShootScoring()
 stock TestRandomSequences()
 {
     new slots[PRACTICE_MAX_TARGETS], bool:noShoot[PRACTICE_MAX_TARGETS], models[PRACTICE_MAX_TARGETS];
-    ResetTest(5); PracticePoints[2][PracticePointSet] = false;
-    PracticePoints[1][PracticePointNoShoot] = PracticePoints[4][PracticePointNoShoot] = true;
-    new total = PracticeBuildSequence(slots, noShoot, models);
+    ResetTest(5); PracticePoints[0][2][PracticePointSet] = false;
+    PracticePoints[0][1][PracticePointNoShoot] = PracticePoints[0][4][PracticePointNoShoot] = true;
+    new total = PracticeBuildSequence(0, slots, noShoot, models);
     Check(total == 4 && slots[0] == 1 && slots[1] == 3 && slots[2] == 4 && slots[3] == 5
         && noShoot[0] && !noShoot[1] && noShoot[2] && !noShoot[3], "fixed sparse sequence respects arbitrary assigned types");
     Check(!TestRandomCalls, "fixed configuration consumes no randomness");
-    PracticeRules[PracticeRandomOrder] = 1;
+    PracticeRules[0][PracticeRandomOrder] = 1;
     new bool:orderChanged, bool:valid = true;
     for (new seed = 1; seed <= 20; seed++)
     {
-        TestRandomSeed = seed; total = PracticeBuildSequence(slots, noShoot, models);
+        TestRandomSeed = seed; total = PracticeBuildSequence(0, slots, noShoot, models);
         valid = valid && TestSequenceValid(slots, noShoot, total);
         for (new index = 0; index < total; index++) valid = valid && (noShoot[index] == (slots[index] == 1 || slots[index] == 4));
         if (slots[0] != 1 || slots[1] != 3 || slots[2] != 4 || slots[3] != 5) orderChanged = true;
     }
     Check(valid && orderChanged, "random order preserves unique slots, exact quota and fixed position types");
-    PracticeRules[PracticeRandomOrder] = 0; PracticeRules[PracticeRandomTypes] = 1;
+    PracticeRules[0][PracticeRandomOrder] = 0; PracticeRules[0][PracticeRandomTypes] = 1;
     new bool:typesChanged; valid = true;
     for (new seed = 1; seed <= 20; seed++)
     {
-        TestRandomSeed = seed; total = PracticeBuildSequence(slots, noShoot, models);
+        TestRandomSeed = seed; total = PracticeBuildSequence(0, slots, noShoot, models);
         valid = valid && TestSequenceValid(slots, noShoot, total)
             && slots[0] == 1 && slots[1] == 3 && slots[2] == 4 && slots[3] == 5;
         if (!noShoot[0] || noShoot[1]) typesChanged = true;
     }
     Check(valid && typesChanged, "random types redistribute exact quota while order stays fixed");
-    PracticeRules[PracticeRandomOrder] = 1;
+    PracticeRules[0][PracticeRandomOrder] = 1;
     valid = true;
     for (new seed = 1; seed <= 50; seed++)
     {
-        TestRandomSeed = seed; total = PracticeBuildSequence(slots, noShoot, models);
+        TestRandomSeed = seed; total = PracticeBuildSequence(0, slots, noShoot, models);
         valid = valid && TestSequenceValid(slots, noShoot, total);
     }
     Check(valid, "both random options preserve every position once and exact type quantities");
-    Check(PracticePoints[1][PracticePointNoShoot] && PracticePoints[4][PracticePointNoShoot]
-        && !PracticePoints[3][PracticePointNoShoot] && !PracticePoints[5][PracticePointNoShoot],
+    Check(PracticePoints[0][1][PracticePointNoShoot] && PracticePoints[0][4][PracticePointNoShoot]
+        && !PracticePoints[0][3][PracticePointNoShoot] && !PracticePoints[0][5][PracticePointNoShoot],
         "random rounds never overwrite saved per-position assignments");
-    PracticeRules[PracticeRandomTypes] = 0; PracticeRules[PracticeRandomOrder] = 0;
-    PracticeBuildSequence(slots, noShoot, models);
+    PracticeRules[0][PracticeRandomTypes] = 0; PracticeRules[0][PracticeRandomOrder] = 0;
+    PracticeBuildSequence(0, slots, noShoot, models);
     Check(noShoot[0] && !noShoot[1] && noShoot[2] && !noShoot[3], "switching back to fixed restores saved types");
-    PracticeRules[PracticeRandomTypes] = PracticeRules[PracticeRandomOrder] = 1;
-    PracticeStart(0); new callsAtStart = TestRandomCalls;
-    TestNow += 3000; PracticeTick(TestNow);
+    PracticeRules[0][PracticeRandomTypes] = PracticeRules[0][PracticeRandomOrder] = 1;
+    PracticeStart(0, 0); new callsAtStart = TestRandomCalls;
+    TestNow += 3000; PracticeTick(0, TestNow);
     for (new index = 0; index < 4; index++)
     {
-        if (PracticeSession[PracticeNoShoot]) { TestNow += 5000; PracticeTick(TestNow); }
+        if (PracticeSession[0][PracticeNoShoot]) { TestNow += 5000; PracticeTick(0, TestNow); }
         else Shoot(true);
         if (index < 3) AdvanceInterval();
     }
     Check(TestResult == 1 && TestResultHits == 2 && TestResultIgnored == 2 && TestRandomCalls == callsAtStart,
         "mixed random round follows its frozen plan without rerolling during callbacks");
-    Check(!PracticeSequenceSlots[0] && !PracticeSequenceNoShoot[0], "cleanup clears sequence before player ID reuse");
+    Check(!PracticeSequenceSlots[0][0] && !PracticeSequenceNoShoot[0][0], "cleanup clears sequence before player ID reuse");
 }
 
 #include "shooting_practice_ui.inc"
@@ -637,19 +663,19 @@ stock TestRandomSequences()
 
 stock TestStorageMigration()
 {
-    ResetTest(3); TestSetNoShoot(1); PracticeRules[PracticeRandomOrder] = 1;
+    ResetTest(3); TestSetNoShoot(1); PracticeRules[0][PracticeRandomOrder] = 1;
     TestWriteConfigFixture("SARP_PRACTICE 1", "24 2 3 5 1");
-    Check(PracticeLoadConfiguration() && PracticeRules[PracticePassPoints] == 2
-        && !PracticeCountNoShootTargets() && !PracticeRules[PracticeMaxErrors]
-        && !PracticeRules[PracticeRandomOrder] && !PracticeRules[PracticeRandomTypes]
-        && PracticePoints[1][PracticePointX] == 8.25 && PracticePoints[1][PracticePointAngle] == 90.5,
+    Check(PracticeLoadConfiguration() && PracticeRules[0][PracticePassPoints] == 2
+        && !PracticeCountNoShootTargets(0) && !PracticeRules[0][PracticeMaxErrors]
+        && !PracticeRules[0][PracticeRandomOrder] && !PracticeRules[0][PracticeRandomTypes]
+        && PracticePoints[0][1][PracticePointX] == 8.25 && PracticePoints[0][1][PracticePointAngle] == 90.5,
         "legacy v1 preserves positions/rules and assigns all targets to shoot");
     Check(PracticeSaveConfiguration(), "legacy layout can be upgraded on next save");
     new File:input = fopen(PRACTICE_CONFIG_FILE, io_read), header[32];
     PracticeReadLine(input, header, sizeof(header)); fclose(input);
-    Check(!strcmp(header, "SARP_PRACTICE 6"), "subsequent save upgrades storage to version 6");
+    Check(!strcmp(header, "SARP_PRACTICE 7"), "subsequent save upgrades storage to version 7");
     TestWriteConfigFixture("SARP_PRACTICE 2", "24 1 3 5 1 1 0 2 0");
-    Check(!PracticeLoadConfiguration() && PracticeRules[PracticePassPoints] == 2 && !PracticeRules[PracticeRandomOrder],
+    Check(!PracticeLoadConfiguration() && PracticeRules[0][PracticePassPoints] == 2 && !PracticeRules[0][PracticeRandomOrder],
         "invalid stored random flag cannot partially replace configuration");
     TestWriteConfigFixture("SARP_PRACTICE 2", "24 1 3 5 1 1 2 0 0");
     Check(!PracticeLoadConfiguration(), "legacy error allowance beyond quota is rejected");
@@ -658,22 +684,22 @@ stock TestStorageMigration()
     TestWriteConfigFixture("SARP_PRACTICE 2", "24 1 3 5 1");
     Check(!PracticeLoadConfiguration(), "v2 cannot silently accept missing fields");
     TestWriteConfigFixture("SARP_PRACTICE 2", "24 1 3 5 1 2 1 1 1", .positions = (1 << 1) | (1 << 4) | (1 << 9));
-    Check(PracticeLoadConfiguration() && !PracticePoints[1][PracticePointNoShoot]
-        && PracticePoints[4][PracticePointNoShoot] && PracticePoints[9][PracticePointNoShoot]
-        && !PracticePoints[3][PracticePointSet] && PracticePoints[1][PracticePointX] == 8.25
-        && PracticeRules[PracticeMaxErrors] == 1 && PracticeRules[PracticeRandomOrder] && PracticeRules[PracticeRandomTypes],
+    Check(PracticeLoadConfiguration() && !PracticePoints[0][1][PracticePointNoShoot]
+        && PracticePoints[0][4][PracticePointNoShoot] && PracticePoints[0][9][PracticePointNoShoot]
+        && !PracticePoints[0][3][PracticePointSet] && PracticePoints[0][1][PracticePointX] == 8.25
+        && PracticeRules[0][PracticeMaxErrors] == 1 && PracticeRules[0][PracticeRandomOrder] && PracticeRules[0][PracticeRandomTypes],
         "v2 migrates highest marked sparse slots and retains randomization preferences");
-    Check(PracticeSaveConfiguration() && PracticeLoadConfiguration() && PracticeCountNoShootTargets() == 2
-        && PracticePoints[4][PracticePointNoShoot] && PracticePoints[9][PracticePointNoShoot],
+    Check(PracticeSaveConfiguration() && PracticeLoadConfiguration() && PracticeCountNoShootTargets(0) == 2
+        && PracticePoints[0][4][PracticePointNoShoot] && PracticePoints[0][9][PracticePointNoShoot],
         "v2-to-v5 upgrade preserves the migrated assignment");
     TestWriteConfigFixture("SARP_PRACTICE 2", "24 1 3 5 1 3 2 0 0", .positions = 2);
-    Check(PracticeLoadConfiguration() && PracticePoints[1][PracticePointNoShoot] && PracticeCountTargets() == 1,
+    Check(PracticeLoadConfiguration() && PracticePoints[0][1][PracticePointNoShoot] && PracticeCountTargets(0) == 1,
         "incomplete legacy layouts retain marked positions even when old quota exceeds them");
     TestWriteConfigFixture("SARP_PRACTICE 3", "24 1 3 5 1 0 0 0", 2);
-    Check(PracticeLoadConfiguration() && PracticePoints[1][PracticePointNoShoot]
-        && !PracticePoints[3][PracticePointNoShoot], "v3 explicitly supports low-numbered no-shoot positions");
+    Check(PracticeLoadConfiguration() && PracticePoints[0][1][PracticePointNoShoot]
+        && !PracticePoints[0][3][PracticePointNoShoot], "v3 explicitly supports low-numbered no-shoot positions");
     TestWriteConfigFixture("SARP_PRACTICE 3", "24 1 3 5 1 0 0 0", 0, 2, 2);
-    Check(!PracticeLoadConfiguration() && PracticePoints[1][PracticePointNoShoot] && !PracticePoints[2][PracticePointNoShoot],
+    Check(!PracticeLoadConfiguration() && PracticePoints[0][1][PracticePointNoShoot] && !PracticePoints[0][2][PracticePointNoShoot],
         "invalid stored type rejects entire file without partial application");
     TestWriteConfigFixture("SARP_PRACTICE 3", "24 1 3 5 1 0 0 0", 0, 2, -1);
     Check(!PracticeLoadConfiguration(), "missing v3 type is not silently treated as shoot");
@@ -691,98 +717,99 @@ stock TestStorageMigration()
 
 #include "shooting_practice_refinements.inc"
 #include "shooting_practice_feedback.inc"
+#include "shooting_practice_zones.inc"
 
 main() {}
 public OnGameModeInit()
 {
     // Valid starts, occupancy, exact shot accounting and one point per presentation.
     ResetTest();
-    PracticeStart(0);
+    PracticeStart(0, 0);
     Shoot(false);
-    Check(PracticeSession[PracticeShots] == 0, "countdown shots excluded");
-    PracticeStart(1);
-    Check(PracticeSession[PracticePlayer] == 0, "second player cannot steal station");
-    PracticeStart(0);
-    Check(PracticeSession[PracticePhaseStarted] == 1000, "duplicate start does not restart countdown");
-    TestNow = 4000; PracticeTick(TestNow);
+    Check(PracticeSession[0][PracticeShots] == 0, "countdown shots excluded");
+    PracticeStart(0, 1);
+    Check(PracticeSession[0][PracticePlayer] == 0, "second player cannot steal station");
+    PracticeStart(0, 0);
+    Check(PracticeSession[0][PracticePhaseStarted] == 1000, "duplicate start does not restart countdown");
+    TestNow = 4000; PracticeTick(0, TestNow);
     Shoot(true, 1);
-    Check(PracticeSession[PracticeHits] == 0 && TestLiveObjects == 1, "bystander cannot score or retire target");
+    Check(PracticeSession[0][PracticeHits] == 0 && TestLiveObjects == 1, "bystander cannot score or retire target");
     Shoot(false); Shoot(true); Shoot(true);
-    Check(PracticeSession[PracticeHits] == 1 && PracticeSession[PracticeShots] == 3, "repeat hit during gap adds no point");
+    Check(PracticeSession[0][PracticeHits] == 1 && PracticeSession[0][PracticeShots] == 3, "repeat hit during gap adds no point");
     Check(TestLiveObjects == 0, "hit removes object");
     AdvanceInterval();
-    TestNow += 5000; PracticeTick(TestNow);
-    Check(PracticeSession[PracticeExpired] == 1, "timeout counts one omission");
+    TestNow += 5000; PracticeTick(0, TestNow);
+    Check(PracticeSession[0][PracticeExpired] == 1, "timeout counts one omission");
     AdvanceInterval(); Shoot(true);
-    Check(!PracticeIsBusy() && TestLiveObjects == 0, "completion releases station and object");
+    Check(!PracticeIsBusy(0) && TestLiveObjects == 0, "completion releases station and object");
     Check(TestResult == 1 && TestResultShots == 4 && TestResultHits == 2 && TestResultExpired == 1, "final score and counters");
-    PracticeStart(1);
-    Check(PracticeSession[PracticePlayer] == 1, "station immediately reusable");
+    PracticeStart(0, 1);
+    Check(PracticeSession[0][PracticePlayer] == 1, "station immediately reusable");
 
     ResetTest(1); ShowFirstTarget();
     TestNow += 5000; Shoot(true);
     Check(TestResult == 2 && TestResultShots == 0 && TestResultHits == 0 && TestResultExpired == 1, "late final hit expires without division by zero");
     ResetTest(2); ShowFirstTarget();
     TestNow += 5000; Shoot(true);
-    Check(PracticeSession[PracticeHits] == 0 && PracticeSession[PracticeExpired] == 1
-        && PracticeSession[PracticeShots] == 1, "late hit before next target is a gap miss");
+    Check(PracticeSession[0][PracticeHits] == 0 && PracticeSession[0][PracticeExpired] == 1
+        && PracticeSession[0][PracticeShots] == 1, "late hit before next target is a gap miss");
     AdvanceInterval();
-    Check(PracticeSession[PracticePresented] == 2, "timeout and shot cannot skip a presentation");
+    Check(PracticeSession[0][PracticePresented] == 2, "timeout and shot cannot skip a presentation");
 
     ResetTest(10); ShowFirstTarget();
     for (new i = 0; i < 10; i++) { Shoot(true); if (i < 9) AdvanceInterval(); }
     Check(TestResultHits == 10 && TestResultShots == 10 && TestResultExpired == 0, "ten target sequence");
-    ResetTest(); PracticePoints[2][PracticePointSet] = false;
+    ResetTest(); PracticePoints[0][2][PracticePointSet] = false;
     ShowFirstTarget(); Shoot(true); AdvanceInterval();
-    Check(PracticeSession[PracticeSlot] == 3 && PracticeSession[PracticeTotal] == 2, "sparse slots keep numeric order");
-    ResetTest(1); PracticeRules[PracticeInterval] = 0; ShowFirstTarget(); Shoot(true);
-    Check(!PracticeIsBusy(), "zero interval still finishes last target");
-    ResetTest(2); PracticeRules[PracticeInterval] = 0; ShowFirstTarget(); Shoot(true);
+    Check(PracticeSession[0][PracticeSlot] == 3 && PracticeSession[0][PracticeTotal] == 2, "sparse slots keep numeric order");
+    ResetTest(1); PracticeRules[0][PracticeInterval] = 0; ShowFirstTarget(); Shoot(true);
+    Check(!PracticeIsBusy(0), "zero interval still finishes last target");
+    ResetTest(2); PracticeRules[0][PracticeInterval] = 0; ShowFirstTarget(); Shoot(true);
     Check(TestLiveObjects == 0, "zero interval does not spawn inside the shot callback");
-    PracticeTick(TestNow); Shoot(true);
+    PracticeTick(0, TestNow); Shoot(true);
     Check(TestResult == 1 && TestResultHits == 2, "zero interval advances on the next tick");
-    ResetTest(3); PracticeRules[PracticePassPoints] = 3; ShowFirstTarget(); Shoot(true);
-    AdvanceInterval(); Shoot(true); AdvanceInterval(); TestNow += 5000; PracticeTick(TestNow);
+    ResetTest(3); PracticeRules[0][PracticePassPoints] = 3; ShowFirstTarget(); Shoot(true);
+    AdvanceInterval(); Shoot(true); AdvanceInterval(); TestNow += 5000; PracticeTick(0, TestNow);
     Check(TestResult == 2 && TestResultHits == 2, "passing threshold is enforced");
 
     // Invalid entry and every cleanup route used by the lifecycle hooks.
-    ResetTest(); TestPosition[0][0] = 2.0; PracticeStart(0);
-    Check(!PracticeIsBusy(), "reject start outside radius");
-    TestPosition[0][0] = 0.0; TestWorld[0] = 1; PracticeStart(0);
-    Check(!PracticeIsBusy(), "reject wrong world");
-    TestWorld[0] = 0; TestWeapon[0] = 23; PracticeStart(0);
-    Check(!PracticeIsBusy(), "reject wrong weapon");
-    TestWeapon[0] = 24; TestState[0] = PLAYER_STATE_DRIVER; PracticeStart(0);
-    Check(!PracticeIsBusy(), "reject vehicle");
-    ResetTest(); ShowFirstTarget(); TestPosition[0][0] = 4.0; PracticeTick(TestNow);
-    Check(!PracticeIsBusy() && TestResult == 3 && TestLiveObjects == 0, "leaving cancels and cleans");
-    ResetTest(); ShowFirstTarget(); TestInterior[0] = 1; PracticeTick(TestNow);
-    Check(!PracticeIsBusy() && TestResult == 3, "changing interior cancels");
-    ResetTest(); ShowFirstTarget(); TestWorld[0] = 1; PracticeTick(TestNow);
-    Check(!PracticeIsBusy(), "changing world cancels");
-    ResetTest(); ShowFirstTarget(); TestWeapon[0] = 23; PracticeTick(TestNow);
-    Check(!PracticeIsBusy(), "changing weapon cancels");
-    ResetTest(); ShowFirstTarget(); TestHealth[0] = 0.0; PracticeTick(TestNow);
-    Check(!PracticeIsBusy(), "death cancels");
-    ResetTest(); ShowFirstTarget(); TestConnected[0] = false; PracticeTick(TestNow);
-    Check(!PracticeIsBusy() && TestLiveObjects == 0, "disconnect cleans");
-    TestConnected[0] = true; PracticeStart(0);
-    Check(PracticeSession[PracticeShots] == 0 && PracticeSession[PracticePresented] == 0, "reused player ID has fresh session");
+    ResetTest(); TestPosition[0][0] = 2.0; PracticeStart(0, 0);
+    Check(!PracticeIsBusy(0), "reject start outside radius");
+    TestPosition[0][0] = 0.0; TestWorld[0] = 1; PracticeStart(0, 0);
+    Check(!PracticeIsBusy(0), "reject wrong world");
+    TestWorld[0] = 0; TestWeapon[0] = 23; PracticeStart(0, 0);
+    Check(!PracticeIsBusy(0), "reject wrong weapon");
+    TestWeapon[0] = 24; TestState[0] = PLAYER_STATE_DRIVER; PracticeStart(0, 0);
+    Check(!PracticeIsBusy(0), "reject vehicle");
+    ResetTest(); ShowFirstTarget(); TestPosition[0][0] = 4.0; PracticeTick(0, TestNow);
+    Check(!PracticeIsBusy(0) && TestResult == 3 && TestLiveObjects == 0, "leaving cancels and cleans");
+    ResetTest(); ShowFirstTarget(); TestInterior[0] = 1; PracticeTick(0, TestNow);
+    Check(!PracticeIsBusy(0) && TestResult == 3, "changing interior cancels");
+    ResetTest(); ShowFirstTarget(); TestWorld[0] = 1; PracticeTick(0, TestNow);
+    Check(!PracticeIsBusy(0), "changing world cancels");
+    ResetTest(); ShowFirstTarget(); TestWeapon[0] = 23; PracticeTick(0, TestNow);
+    Check(!PracticeIsBusy(0), "changing weapon cancels");
+    ResetTest(); ShowFirstTarget(); TestHealth[0] = 0.0; PracticeTick(0, TestNow);
+    Check(!PracticeIsBusy(0), "death cancels");
+    ResetTest(); ShowFirstTarget(); TestConnected[0] = false; PracticeTick(0, TestNow);
+    Check(!PracticeIsBusy(0) && TestLiveObjects == 0, "disconnect cleans");
+    TestConnected[0] = true; PracticeStart(0, 0);
+    Check(PracticeSession[0][PracticeShots] == 0 && PracticeSession[0][PracticePresented] == 0, "reused player ID has fresh session");
     ResetTest(); ShowFirstTarget(); TestCommand_practica(1, "cancelar");
-    Check(PracticeIsBusy(), "bystander cannot cancel");
+    Check(PracticeIsBusy(0), "bystander cannot cancel");
     TestCommand_practica(0, "cancelar");
-    Check(!PracticeIsBusy() && TestResult == 3, "explicit cancellation is incomplete");
+    Check(!PracticeIsBusy(0) && TestResult == 3, "explicit cancellation is incomplete");
     ResetTest(1); ShowFirstTarget(); TestAmmo[0][2] = 0; TestWeapon[0] = 0;
-    PracticeTick(TestNow); Check(PracticeIsBusy(), "empty ammo does not cancel");
-    TestNow += 5000; PracticeTick(TestNow);
+    PracticeTick(0, TestNow); Check(PracticeIsBusy(0), "empty ammo does not cancel");
+    TestNow += 5000; PracticeTick(0, TestNow);
     Check(TestResult == 2 && TestResultExpired == 1, "empty ammo attempt expires normally");
-    ResetTest(); TestCreateFails = true; PracticeStart(0); TestNow += 3000; PracticeTick(TestNow);
-    Check(!PracticeIsBusy() && TestResult == 3 && TestLiveObjects == 0, "creation failure releases station");
-    ResetTest(); TestVisible = false; PracticeStart(0); TestNow += 3000; PracticeTick(TestNow);
-    Check(!PracticeIsBusy() && TestResult == 3 && TestLiveObjects == 0, "streaming failure cleans object");
-    ResetTest(); ShowFirstTarget(); TestDestroyObject(PracticeSession[PracticeObject]); PracticeTick(TestNow);
-    Check(!PracticeIsBusy() && TestResult == 3, "lost object marks attempt incomplete");
-    ResetTest(1); TestNow = 2147483000; ShowFirstTarget(); TestNow += 5000; PracticeTick(TestNow);
+    ResetTest(); TestCreateFails = true; PracticeStart(0, 0); TestNow += 3000; PracticeTick(0, TestNow);
+    Check(!PracticeIsBusy(0) && TestResult == 3 && TestLiveObjects == 0, "creation failure releases station");
+    ResetTest(); TestVisible = false; PracticeStart(0, 0); TestNow += 3000; PracticeTick(0, TestNow);
+    Check(!PracticeIsBusy(0) && TestResult == 3 && TestLiveObjects == 0, "streaming failure cleans object");
+    ResetTest(); ShowFirstTarget(); TestDestroyObject(PracticeSession[0][PracticeObject]); PracticeTick(0, TestNow);
+    Check(!PracticeIsBusy(0) && TestResult == 3, "lost object marks attempt incomplete");
+    ResetTest(1); TestNow = 2147483000; ShowFirstTarget(); TestNow += 5000; PracticeTick(0, TestNow);
     Check(TestResult == 2, "clock wraparound preserves deadlines");
 
     TestPresentation();
@@ -806,7 +833,12 @@ public OnGameModeInit()
     TestPreviewProtection();
     TestDecimalTimings();
     TestCountdownPacing();
-    PracticeCleanup();
+    TestZoneAdministration();
+    TestZoneSelection();
+    TestIndependentZones();
+    TestZoneStorage();
+    ResetTest();
+    PracticeCleanup(0);
     printf("[Practice tests] %d assertions, %d failures", TestAssertions, TestFailures);
     if (!TestFailures) print("[Practice tests] PASS");
     new callback[] = "PracticeTestExit";
