@@ -1,13 +1,17 @@
 # Shooting practice regression tests
 
-Current verification: 2026-10-08. This increment was built and tested in isolated Linux SA-MP 0.3.DL-R1. No playable deployment/start/restart occurred.
+Current verification: 2026-10-10. This increment was built and tested in isolated Windows SA-MP 0.3.DL-R1. The playable server was subsequently rebuilt and restarted on the user's explicit request, with its saved layout hash preserved.
 
 The suite includes production configuration, registry, storage, sequence, session, presentation, editor and
 dialog code. shooting_practice_ui.inc exercises configuration flows; shooting_practice_refinements.inc
 covers multiweapon configuration, countdown ownership, departure and detailed feedback.
 shooting_practice_feedback.inc covers conditional actions, distance gates and stable editing references.
 shooting_practice_polish.inc covers preview-shot repair, cue spacing and fractional timing/migration.
-shooting_practice_zones.inc covers administration, public selection, independent sessions/editors, v7 registry storage and recovery.
+shooting_practice_zones.inc covers administration, public selection, independent sessions/editors, registry storage and recovery.
+shooting_practice_starts.inc covers point CRUD, shared geometry, exclusive public use, nearest/frozen origins,
+multiple preview markers, legacy v7 migration and v8 storage. shooting_practice_pause.inc covers
+closing/resuming sections, retained drafts/views, stale records, save ordering and cleanup.
+shooting_practice_discovery.inc covers per-zone pickups, private entry hints, allocation rollback and v1-v8 indicator migration.
 Player state, clock, audio,
 dialog rendering, model cards and streamer operations use deterministic adapters.
 Pawn execution, format, sscanf 2.13.1 and file I/O are real. Results are captured before the actual
@@ -29,7 +33,32 @@ positions, configuration, AMX and logs are not overwritten.
 The tests intentionally overwrite their own scriptfiles/shooting_practice.cfg, .tmp and .bak.
 Never run the test AMX in a live/playable server directory.
 
-## Recorded verification: 2026-10-08
+## Recorded verification: 2026-10-10
+
+**955 assertions, 0 failures** on isolated Windows SA-MP 0.3.DL-R1, normal process exit.
+Full SARP.pwn and tests compile with Pawn 3.10.10 and warnings treated as errors.
+The isolated test run never modifies playable server files or processes. After verification, the separate local launcher
+rebuilt and restarted the playable server on explicit request. Its v8 saved configuration was not rewritten on load.
+
+New coverage:
+- Multiple start-point add/name/relocate/delete, cap, sparse slots, stale responses and RCON revocation.
+- Common dimension/distance gates, retained targets when deleting the final point, inactive partial reload.
+- Nearest and tied point selection, frozen movement/cue origin and departure from the selected post.
+- One session per zone across its posts, public target ownership and release for another participant.
+- Private markers per viewer, stable neighbour handles, update/start/dimension cleanup.
+- V7 start migration without rewriting on load, V8 multiple/sparse start round trips and corrupt records.
+- Close/resume through bare or matching-ID commands, walking before creation, retained draft/view,
+  refreshed stale lists, replaced-point safety, zone switching, save order, RCON/lifecycle/range loss.
+- Optional public pistol pickup per start, stable/changed/deleted handles, dimension isolation, active/archived/reset lifecycle,
+  partial allocation rollback and repair. Private entry hints work with or without pickups, with post hysteresis and eligibility filters.
+- Per-zone v9 flags, v1-v8 migration with indicators off, rejected metadata, administrative/stale/occupied checks and save retry.
+- Seven-line white result bodies with soft-blue headers/dividers/pipes, colored verdict word, literal percent and compact cancellation.
+- All existing zone, scoring, editor, preview, report, weapon, timing and storage recovery regressions.
+
+The tests simulate client/streamer behavior. Validate actual rendering, sounds and public visibility
+using the multiple-booth steps in the manual guide.
+
+## Previous verification: 2026-10-08
 
 **745 assertions, 0 failures** on isolated Linux SA-MP 0.3.DL-R1, sscanf 2.13.1 and crashdetect 4.22;
 normal process exit. Tests and full SARP.pwn compile with Pawn 3.10.10 and -;+ -(+ -d3 -E.
@@ -98,7 +127,7 @@ Coverage includes:
 Earlier Windows evidence: Pawn 3.10.10 full compilation and isolated 606-assertion test run.
 The prior playable Windows build loaded seven plugins and the saved configuration without changing
 its layout hash, following explicitly requested restarts. The user subsequently stopped that server.
-Those deployments do not validate the new multi-zone source. Do not restart a playable server
+The latest explicit restart validates loading of the current build, not actual client rendering. Do not restart a playable server
 automatically during the user's in-game feedback.
 
 Adapters do not execute the actual easyDialog/mSelection/YSI dispatcher, render the client,

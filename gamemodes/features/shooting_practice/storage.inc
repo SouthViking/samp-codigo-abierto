@@ -5,7 +5,7 @@
 
 #define PRACTICE_CONFIG_TEMP "shooting_practice.cfg.tmp"
 #define PRACTICE_CONFIG_BACKUP "shooting_practice.cfg.bak"
-// File backend v7 stores the entire registry. Attempts remain transient.
+// File backend v9 stores the entire registry. Attempts remain transient.
 // TODO(SP-DB-SAVE/LOAD): replace this repository with host-connection transactions,
 // immutable configuration versions and external identity references. No SQL in dialogs/shots.
 
@@ -22,8 +22,8 @@ stock bool:PracticeReadLine(File:input, line[], size = sizeof line)
     return true;
 }
 
-stock bool:PracticeReadLayout(File:input, version, points[PRACTICE_MAX_TARGETS + 1][E_PRACTICE_POINT],
-    rules[E_PRACTICE_RULE], const terminator[])
+stock bool:PracticeReadLayout(File:input, version, points[PRACTICE_POINT_COUNT][E_PRACTICE_POINT],
+    rules[E_PRACTICE_RULE], const terminator[], bool:multipleStarts = false)
 {
     new line[256], legacyNoShootCount;
     new bool:valid = true;
@@ -66,7 +66,8 @@ stock bool:PracticeReadLayout(File:input, version, points[PRACTICE_MAX_TARGETS +
         valid = valid && PracticeRulesValid(rules);
     }
 
-    for (new slot = 0; valid && slot <= PRACTICE_MAX_TARGETS; slot++)
+    new pointCount = multipleStarts ? PRACTICE_POINT_COUNT : PRACTICE_MAX_TARGETS + 1;
+    for (new slot = 0; valid && slot < pointCount; slot++)
     {
         new marked, noShoot;
         valid = PracticeReadLine(input, line);
@@ -91,7 +92,7 @@ stock bool:PracticeReadLayout(File:input, version, points[PRACTICE_MAX_TARGETS +
             valid = !sscanf(line, "iffffii", marked,
                 points[slot][PracticePointX], points[slot][PracticePointY], points[slot][PracticePointZ],
                 points[slot][PracticePointAngle], points[slot][PracticePointInterior], points[slot][PracticePointWorld]);
-        if (!valid || (marked != 0 && marked != 1) || (noShoot != 0 && noShoot != 1) || (!slot && noShoot))
+        if (!valid || (marked != 0 && marked != 1) || (noShoot != 0 && noShoot != 1) || (PracticeIsStartSlot(slot) && noShoot))
         {
             valid = false;
             break;
@@ -100,10 +101,22 @@ stock bool:PracticeReadLayout(File:input, version, points[PRACTICE_MAX_TARGETS +
         points[slot][PracticePointNoShoot] = bool:noShoot;
         if (version < 4 && slot && marked) points[slot][PracticePointModel] = PRACTICE_TARGET_MODEL;
         valid = PracticePointValid(points[slot]);
-        if (slot && points[slot][PracticePointSet])
-            valid = valid && points[0][PracticePointSet] && PracticeSameDimension(points[0], points[slot])
-                && PracticeModelIndex(points[slot][PracticePointModel]) >= 0;
+        if (!PracticeIsStartSlot(slot) && points[slot][PracticePointSet])
+            valid = valid && PracticeModelIndex(points[slot][PracticePointModel]) >= 0
+                && (multipleStarts || (points[0][PracticePointSet] && PracticeSameDimension(points[0], points[slot])));
         else valid = valid && !points[slot][PracticePointModel];
+    }
+    if (valid && multipleStarts)
+    {
+        // Partial configurations may retain targets after the last start is deleted.
+        // Marked points must still share one dimension, with or without a start.
+        new first = -1;
+        for (new slot = 0; valid && slot < pointCount; slot++)
+        {
+            if (!points[slot][PracticePointSet]) continue;
+            if (first < 0) first = slot;
+            else valid = PracticeSameDimension(points[first], points[slot]);
+        }
     }
     if (valid) valid = PracticeReadLine(input, line) && !strcmp(line, terminator);
     if (version == 2)
@@ -122,25 +135,25 @@ stock bool:PracticeReadRegistry(const path[], bool:publish = false)
 {
     new File:input = fopen(path, io_read);
     if (!input) return false;
-    static points[PRACTICE_MAX_ZONES][PRACTICE_MAX_TARGETS + 1][E_PRACTICE_POINT];
+    static points[PRACTICE_MAX_ZONES][PRACTICE_POINT_COUNT][E_PRACTICE_POINT];
     static rules[PRACTICE_MAX_ZONES][E_PRACTICE_RULE];
     static ids[PRACTICE_MAX_ZONES], names[PRACTICE_MAX_ZONES][PRACTICE_ZONE_NAME_SIZE];
-    static bool:enabled[PRACTICE_MAX_ZONES], bool:archived[PRACTICE_MAX_ZONES];
+    static bool:enabled[PRACTICE_MAX_ZONES], bool:archived[PRACTICE_MAX_ZONES], bool:indicators[PRACTICE_MAX_ZONES];
     new empty[E_PRACTICE_POINT];
     for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
     {
-        ids[zone] = 0; names[zone][0] = EOS; enabled[zone] = archived[zone] = false;
+        ids[zone] = 0; names[zone][0] = EOS; enabled[zone] = archived[zone] = indicators[zone] = false;
         rules[zone] = PracticeDefaultRules;
-        for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++) points[zone][slot] = empty;
+        for (new slot = 0; slot < PRACTICE_POINT_COUNT; slot++) points[zone][slot] = empty;
     }
     new line[256], expected[80], prefix[24], version, count = 1, nextId = 2;
     new bool:valid = PracticeReadLine(input, line) && !sscanf(line, "s[24]i", prefix, version);
     if (valid)
     {
         format(expected, sizeof(expected), "SARP_PRACTICE %d", version);
-        valid = version >= 1 && version <= 7 && !strcmp(line, expected);
+        valid = version >= 1 && version <= 9 && !strcmp(line, expected);
     }
-    if (valid && version == 7)
+    if (valid && version >= 7)
     {
         valid = PracticeReadLine(input, line) && strfind(line, "REGISTRY ") == 0
             && !sscanf(line[9], "ii", nextId, count) && nextId > 0
@@ -152,22 +165,27 @@ stock bool:PracticeReadRegistry(const path[], bool:publish = false)
         }
         for (new zone = 0; valid && zone < count; zone++)
         {
-            new active, retired;
-            valid = PracticeReadLine(input, line) && strfind(line, "ZONE ") == 0
-                && !sscanf(line[5], "iii", ids[zone], active, retired)
-                && ids[zone] > 0 && ids[zone] < nextId
+            new active, retired, marker;
+            valid = PracticeReadLine(input, line) && strfind(line, "ZONE ") == 0;
+            if (valid && version >= 9)
+                valid = !sscanf(line[5], "iiii", ids[zone], active, retired, marker);
+            else if (valid)
+                valid = !sscanf(line[5], "iii", ids[zone], active, retired);
+            valid = valid && ids[zone] > 0 && ids[zone] < nextId
                 && (active == 0 || active == 1) && (retired == 0 || retired == 1)
-                && !(active && retired);
+                && (marker == 0 || marker == 1) && !(active && retired);
             if (valid)
             {
-                format(expected, sizeof(expected), "ZONE %d %d %d", ids[zone], active, retired);
+                if (version >= 9)
+                    format(expected, sizeof(expected), "ZONE %d %d %d %d", ids[zone], active, retired, marker);
+                else format(expected, sizeof(expected), "ZONE %d %d %d", ids[zone], active, retired);
                 valid = !strcmp(line, expected);
             }
             for (new earlier = 0; valid && earlier < zone; earlier++)
                 if (ids[zone] == ids[earlier]) valid = false;
             if (valid)
             {
-                enabled[zone] = bool:active; archived[zone] = bool:retired;
+                enabled[zone] = bool:active; archived[zone] = bool:retired; indicators[zone] = bool:marker;
                 valid = PracticeReadLine(input, line) && strfind(line, "ZONE_NAME ") == 0
                     && strlen(line) < 10 + PRACTICE_ZONE_NAME_SIZE;
                 if (valid)
@@ -176,7 +194,7 @@ stock bool:PracticeReadRegistry(const path[], bool:publish = false)
                     valid = PracticeZoneNameValid(names[zone]);
                 }
             }
-            if (valid) valid = PracticeReadLayout(input, 6, points[zone], rules[zone], "END_ZONE");
+            if (valid) valid = PracticeReadLayout(input, 6, points[zone], rules[zone], "END_ZONE", version >= 8);
         }
         if (valid) valid = PracticeReadLine(input, line) && !strcmp(line, "END");
     }
@@ -195,21 +213,23 @@ stock bool:PracticeReadRegistry(const path[], bool:publish = false)
     for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
         if (PracticeIsBusy(zone) || PracticeConfigurationEditing(zone)) return false;
     for (new playerid = 0; playerid < MAX_PLAYERS; playerid++) PracticeResetUI(playerid);
+    PracticeResetDiscovery();
     PracticeRegistrySavePending = false;
     for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
     {
         PracticeZoneID[zone] = ids[zone];
         format(PracticeZoneName[zone], PRACTICE_ZONE_NAME_SIZE, "%s", names[zone]);
         PracticeZoneEnabled[zone] = enabled[zone]; PracticeZoneArchived[zone] = archived[zone];
+        PracticeZoneIndicators[zone] = indicators[zone];
         PracticeRules[zone] = rules[zone];
-        for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++) PracticePoints[zone][slot] = points[zone][slot];
+        for (new slot = 0; slot < PRACTICE_POINT_COUNT; slot++) PracticePoints[zone][slot] = points[zone][slot];
         PracticeRevision[zone]++;
         PracticeSavePending[zone] = false;
         new reason[144];
         if (enabled[zone] && !PracticeConfigurationReady(zone, reason))
         {
             PracticeZoneEnabled[zone] = false;
-            if (version == 7) PracticeSavePending[zone] = PracticeRegistrySavePending = true;
+            if (version >= 7) PracticeSavePending[zone] = PracticeRegistrySavePending = true;
         }
     }
     PracticeNextZoneID = nextId;
@@ -217,6 +237,7 @@ stock bool:PracticeReadRegistry(const path[], bool:publish = false)
     PracticeStorageBlocked = false;
     for (new playerid = 0; playerid < MAX_PLAYERS; playerid++)
         PracticeSelectedZone[playerid] = PracticeFindZone(PracticeSelectedZoneID[playerid]);
+    for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++) PracticeSynchronizeIndicators(zone);
     return true;
 }
 
@@ -241,13 +262,13 @@ stock bool:PracticeSaveConfiguration()
     if (!output) return false;
     new line[256], count;
     for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++) if (PracticeZoneID[zone]) count++;
-    new bool:success = PracticeWriteLine(output, "SARP_PRACTICE 7\r\n");
+    new bool:success = PracticeWriteLine(output, "SARP_PRACTICE 9\r\n");
     format(line, sizeof(line), "REGISTRY %d %d\r\n", PracticeNextZoneID, count);
     if (!PracticeWriteLine(output, line)) success = false;
     for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
     {
         if (!PracticeZoneID[zone]) continue;
-        format(line, sizeof(line), "ZONE %d %d %d\r\n", PracticeZoneID[zone], PracticeZoneEnabled[zone], PracticeZoneArchived[zone]);
+        format(line, sizeof(line), "ZONE %d %d %d %d\r\n", PracticeZoneID[zone], PracticeZoneEnabled[zone], PracticeZoneArchived[zone], PracticeZoneIndicators[zone]);
         if (!PracticeWriteLine(output, line)) success = false;
         format(line, sizeof(line), "ZONE_NAME %s\r\n", PracticeZoneName[zone]);
         if (!PracticeWriteLine(output, line)) success = false;
@@ -255,7 +276,7 @@ stock bool:PracticeSaveConfiguration()
             PracticeRules[zone][PracticePassPoints], PracticeRules[zone][PracticePreparation], PracticeRules[zone][PracticeExposure],
             PracticeRules[zone][PracticeInterval], PracticeRules[zone][PracticeMaxErrors], PracticeRules[zone][PracticeRandomOrder], PracticeRules[zone][PracticeRandomTypes]);
         if (!PracticeWriteLine(output, line)) success = false;
-        for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++)
+        for (new slot = 0; slot < PRACTICE_POINT_COUNT; slot++)
         {
             format(line, sizeof(line), "%d %.6f %.6f %.6f %.6f %d %d %d %d %.6f %.6f\r\n",
                 PracticePoints[zone][slot][PracticePointSet], PracticePoints[zone][slot][PracticePointX], PracticePoints[zone][slot][PracticePointY],

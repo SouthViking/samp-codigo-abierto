@@ -33,10 +33,10 @@ stock PracticeHideCountdown(playerid)
 stock bool:PracticeCanObserve(zone, playerid)
 {
     return IsPlayerConnected(playerid) && !IsPlayerNPC(playerid)
-        && GetPlayerVirtualWorld(playerid) == PracticePoints[zone][0][PracticePointWorld]
-        && GetPlayerInterior(playerid) == PracticePoints[zone][0][PracticePointInterior]
-        && IsPlayerInRangeOfPoint(playerid, PRACTICE_CUE_RADIUS, PracticePoints[zone][0][PracticePointX],
-            PracticePoints[zone][0][PracticePointY], PracticePoints[zone][0][PracticePointZ]);
+        && GetPlayerVirtualWorld(playerid) == PracticeSessionOrigin[zone][PracticePointWorld]
+        && GetPlayerInterior(playerid) == PracticeSessionOrigin[zone][PracticePointInterior]
+        && IsPlayerInRangeOfPoint(playerid, PRACTICE_CUE_RADIUS, PracticeSessionOrigin[zone][PracticePointX],
+            PracticeSessionOrigin[zone][PracticePointY], PracticeSessionOrigin[zone][PracticePointZ]);
 }
 
 stock PracticePlayCue(zone, soundid)
@@ -125,31 +125,34 @@ stock PracticeApplyTargetAppearance(STREAMER_TAG_OBJECT:objectid, bool:noShoot, 
 stock PracticeReportResult(playerid, bool:completed, const result[E_PRACTICE_SESSION], const reason[])
 {
     new message[144];
+    PracticeSendResultLine(playerid, PRACTICE_SECTION_COLOUR, "---------- CAMPO DE TIRO ----------");
     if (!completed)
     {
-        format(message, sizeof(message), "[Práctica] Incompleta: %s", reason);
-        return PracticeSendResultLine(playerid, COLOR_WHITE, message);
+        format(message, sizeof(message), "Incompleta: %s", reason);
+        PracticeSendResultLine(playerid, COLOR_WHITE, message);
+        return PracticeSendResultLine(playerid, PRACTICE_SECTION_COLOUR, "-----------------------------------");
     }
-    format(message, sizeof(message), "[Práctica] Reglas. Puntos netos mínimos: %d. Errores máximos: %d. Acierto +1, error -1.",
-        result[PracticeRequiredPoints], result[PracticeAllowedErrors]);
+    format(message, sizeof(message), "Puntos mínimos: %d%sErrores máximos: %d",
+        result[PracticeRequiredPoints], PRACTICE_CHAT_SEPARATOR, result[PracticeAllowedErrors]);
     PracticeSendResultLine(playerid, COLOR_WHITE, message);
-    format(message, sizeof(message), "[Práctica] Resultados. Aciertos: %d/%d. Sin impactar a tiempo: %d.",
-        result[PracticeHits], result[PracticeShootTotal], result[PracticeExpired]);
+    format(message, sizeof(message), "Aciertos: %d/%d%sSin impactar a tiempo: %d",
+        result[PracticeHits], result[PracticeShootTotal], PRACTICE_CHAT_SEPARATOR, result[PracticeExpired]);
     PracticeSendResultLine(playerid, COLOR_WHITE, message);
-    format(message, sizeof(message), "[Práctica] Protegidos respetados: %d/%d. Errores de identificación: %d.",
-        result[PracticeCorrectIgnores], result[PracticeNoShootTotal], result[PracticeIdentificationErrors]);
+    format(message, sizeof(message), "Protegidos respetados: %d/%d%sErrores de identificación: %d",
+        result[PracticeCorrectIgnores], result[PracticeNoShootTotal], PRACTICE_CHAT_SEPARATOR, result[PracticeIdentificationErrors]);
     PracticeSendResultLine(playerid, COLOR_WHITE, message);
     if (result[PracticeShots])
-        format(message, sizeof(message), "[Práctica] Disparos: %d. Precisión: %.1f%c.",
-            result[PracticeShots], 100.0 * float(result[PracticeHits]) / float(result[PracticeShots]), '%');
+        format(message, sizeof(message), "Disparos: %d%sPrecisión: %.1f%c",
+            result[PracticeShots], PRACTICE_CHAT_SEPARATOR, 100.0 * float(result[PracticeHits]) / float(result[PracticeShots]), '%');
     else
-        format(message, sizeof(message), "[Práctica] Disparos: 0. Precisión: no disponible.");
+        format(message, sizeof(message), "Disparos: 0%sPrecisión: no disponible", PRACTICE_CHAT_SEPARATOR);
     PracticeSendResultLine(playerid, COLOR_WHITE, message);
     new bool:passed = PracticeResultPassed(result);
-    format(message, sizeof(message), "[Práctica] Veredicto: {%06x}%s{FFFFFF}. Puntuación neta: %d.",
-        (passed ? COLOR_LIGHTGREEN : COLOR_RED) >>> 8,
-        passed ? ("Aprobado") : ("Reprobado"), PracticeResultPoints(result));
-    return PracticeSendResultLine(playerid, COLOR_WHITE, message);
+    format(message, sizeof(message), "Puntuación neta: %d%sVeredicto: {%06x}%s{FFFFFF}",
+        PracticeResultPoints(result), PRACTICE_CHAT_SEPARATOR, (passed ? COLOR_LIGHTGREEN : COLOR_RED) >>> 8,
+        passed ? ("Aprobado") : ("Reprobado"));
+    PracticeSendResultLine(playerid, COLOR_WHITE, message);
+    return PracticeSendResultLine(playerid, PRACTICE_SECTION_COLOUR, "-----------------------------------");
 }
 
 stock PracticeShowAllowedWeapons(zone, playerid)
@@ -181,7 +184,7 @@ stock PracticeShowPlayerHelp(zone, playerid)
     PracticeShowAllowedWeapons(zone, playerid);
     va_SendClientMessage(playerid, COLOR_GRAD1, "Preparación: %ds. Tiempo por blanco: %.1fs. Intervalo: %.1fs. La cuenta regresiva se muestra en pantalla.",
         PracticeRules[zone][PracticePreparation], float(PracticeRules[zone][PracticeExposure]) / 1000.0, float(PracticeRules[zone][PracticeInterval]) / 1000.0);
-    va_SendClientMessage(playerid, COLOR_GRAD1, "Para aprobar: mínimo %d puntos netos y máximo %d errores de identificación. Permanece a menos de 3 metros del inicio.",
+    va_SendClientMessage(playerid, COLOR_GRAD1, "Para aprobar: mínimo %d puntos netos y máximo %d errores de identificación. Permanece a menos de 3 metros del punto desde el que iniciaste.",
         PracticeRules[zone][PracticePassPoints], PracticeRules[zone][PracticeMaxErrors]);
     return 1;
 }

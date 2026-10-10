@@ -14,6 +14,7 @@
 #define isnull(%0) (!(%0)[0])
 #define STREAMER_TAG_OBJECT _
 #define STREAMER_TAG_CP _
+#define STREAMER_TAG_PICKUP _
 #define STREAMER_TAG_3D_TEXT_LABEL _
 #define INVALID_STREAMER_ID (0)
 #define STREAMER_TYPE_OBJECT (0)
@@ -59,11 +60,31 @@ new TestEditorObject[TEST_PLAYERS], TestEditorLock[TEST_PLAYERS], TestCancelEdit
 new bool:TestEditFails, bool:TestCatalogue[TEST_PLAYERS], TestTDCount[TEST_PLAYERS], TestNextTD;
 new TestDialogTitle[TEST_PLAYERS][80], TestDialogBody[TEST_PLAYERS][3072];
 new bool:TestSaveFails;
+new bool:TestPickups[1024], TestNextPickup, TestLivePickups, TestPickupFailAt;
+new TestPickupModels[1024], TestPickupTypes[1024], TestPickupWorld[1024], TestPickupInterior[1024];
+new Float:TestPickupPosition[1024][3];
 
 stock File:TestStorageOpen(const name[], filemode:mode)
 {
     if (TestSaveFails && mode == io_write) return File:0;
     return fopen(name, mode);
+}
+
+stock TestCreatePickup(modelid, type, Float:x, Float:y, Float:z, worldid, interiorid)
+{
+    if (TestPickupFailAt && TestNextPickup + 1 == TestPickupFailAt) return 0;
+    new pickupid = ++TestNextPickup;
+    TestPickups[pickupid] = true; TestLivePickups++;
+    TestPickupModels[pickupid] = modelid; TestPickupTypes[pickupid] = type;
+    TestPickupWorld[pickupid] = worldid; TestPickupInterior[pickupid] = interiorid;
+    TestPickupPosition[pickupid][0] = x; TestPickupPosition[pickupid][1] = y; TestPickupPosition[pickupid][2] = z;
+    return pickupid;
+}
+stock TestPickupValid(pickupid) { return pickupid > 0 && pickupid < 1024 && TestPickups[pickupid]; }
+stock TestDestroyPickup(pickupid)
+{
+    if (TestPickupValid(pickupid)) { TestPickups[pickupid] = false; TestLivePickups--; }
+    return 1;
 }
 
 stock TestDialog(playerid, style, const title[], const body[], const accept[], const cancel[])
@@ -142,11 +163,6 @@ stock TestSendMessage(playerid, color, const message[])
     TestMessages[playerid]++;
     if (strlen(message) > TestLongestMessage) TestLongestMessage = strlen(message);
     strcat(TestChat[playerid], message, 8192); strcat(TestChat[playerid], "\n", 8192);
-    if (strfind(message, "[Práctica]") == 0)
-    {
-        TestPrivateMessages[playerid]++;
-        if (color != COLOR_WHITE) TestResultColourWrong = true;
-    }
     format(TestLastMessage[playerid], 144, "%s", message);
     TestLastMessageColour[playerid] = color;
     return 1;
@@ -250,6 +266,9 @@ stock TestRandom(maximum)
 #define PlayerPlaySound TestPlaySound
 #define random TestRandom
 #define HidePlayerDialog TestHideDialog
+#define CreateDynamicPickup TestCreatePickup
+#define DestroyDynamicPickup TestDestroyPickup
+#define IsValidDynamicPickup TestPickupValid
 #define CreateDynamicCP TestCreateCP
 #define DestroyDynamicCP TestDestroyCP
 #define IsValidDynamicCP TestCPValid
@@ -280,7 +299,7 @@ stock TestRandom(maximum)
 #define PracticeReportResult TestRecordResult
 #include "../gamemodes/features/shooting_practice/session.inc"
 #undef PracticeReportResult
-#define PracticeSendResultLine TestSendMessage
+#define PracticeSendResultLine TestSendResultMessage
 #include "../gamemodes/features/shooting_practice/presentation.inc"
 #undef PracticeSendResultLine
 #include "../gamemodes/features/shooting_practice/editor.inc"
@@ -288,8 +307,17 @@ stock TestRandom(maximum)
 #include "../gamemodes/features/shooting_practice/storage.inc"
 #undef fopen
 #include "../gamemodes/features/shooting_practice/setup.inc"
+#include "../gamemodes/features/shooting_practice/start_setup.inc"
 #include "../gamemodes/features/shooting_practice/zone_setup.inc"
+#include "../gamemodes/features/shooting_practice/discovery.inc"
 
+stock TestSendResultMessage(playerid, color, const message[])
+{
+    TestPrivateMessages[playerid]++;
+    new bool:divider = strfind(message, "----------") == 0;
+    if (color != (divider ? PRACTICE_SECTION_COLOUR : COLOR_WHITE)) TestResultColourWrong = true;
+    return TestSendMessage(playerid, color, message);
+}
 stock TestRecordResult(playerid, bool:completed, const result[E_PRACTICE_SESSION], const reason[])
 {
     TestResult = completed ? (PracticeResultPassed(result) ? 1 : 2) : 3;
@@ -339,7 +367,8 @@ stock ResetTest(targets = 3)
         noTextdraws = noTextdraws && !TestTDCount[playerid];
     }
     Check(noTextdraws, "cleanup releases every owned textdraw");
-    Check(TestLiveObjects == 0 && !TestLiveCP && !TestLiveLabels, "cleanup leaves no objects, checkpoints or labels");
+    PracticeResetDiscovery();
+    Check(TestLiveObjects == 0 && !TestLiveCP && !TestLiveLabels && !TestLivePickups, "cleanup leaves no objects, checkpoints or labels");
     PracticeInitializeRegistry();
     PracticeCreateZone("Campo de tiro");
     PracticeZoneEnabled[0] = true;
@@ -385,6 +414,7 @@ stock ResetTest(targets = 3)
     TestMaterialFails = false; TestCueBeforeReady = false; TestStreamedObject = 0;
     TestRandomSeed = 42; TestRandomCalls = 0;
     TestNextCP = TestNextLabel = TestNextTD = TestLabelFailAt = 0;
+    TestNextPickup = TestPickupFailAt = 0;
     TestCPFails = TestEditFails = TestSaveFails = TestTDFails = false;
     TestLongestMessage = 0; TestResultColourWrong = false;
 }
@@ -498,7 +528,7 @@ stock TestPresentation()
     Check(TestSoundCount[0] == 5 && TestSounds[0][4] == PRACTICE_SOUND_TARGET, "each later target has one appearance cue");
     TestCommand_practica(0, "cancelar");
     Check(TestSoundCount[0] == 6 && TestSounds[0][5] == PRACTICE_SOUND_END, "cancellation closes with a distinct cue");
-    Check(TestPrivateMessages[0] == 1 && !TestPrivateMessages[1] && TestMessages[1] == 2, "only participant receives interruption reason");
+    Check(TestPrivateMessages[0] == 3 && !TestPrivateMessages[1] && TestMessages[1] == 2, "only participant receives interruption reason");
     TestNow += 60000; PracticeTick(0, TestNow); PracticeEnd(0, false, "repeat");
     Check(TestSoundCount[0] == 6 && TestLiveObjects == 0, "no stale beeps or duplicate closure after cancellation");
     PracticeStart(0, 0);
@@ -509,10 +539,10 @@ stock TestPresentation()
     Check(TestSoundCount[0] == 6 && TestSounds[0][4] == PRACTICE_SOUND_COUNTDOWN
         && TestSounds[0][5] == PRACTICE_SOUND_TARGET, "countdown respects configured duration");
     Shoot(true);
-    Check(TestMessages[0] == 7 && TestPrivateMessages[0] == 5 && TestMessages[1] == 2,
-        "normal round has start/end roleplay plus five private result lines");
-    Check(strfind(TestChat[0], "Veredicto: {9EC73D}Aprobado{FFFFFF}. Puntuación neta:", true) != -1
-        && strfind(TestChat[0], "Precisión: 100.0%.") != -1 && TestLastMessageColour[0] == COLOR_WHITE,
+    Check(TestMessages[0] == 9 && TestPrivateMessages[0] == 7 && TestMessages[1] == 2,
+        "normal round has start/end roleplay plus seven private result lines");
+    Check(strfind(TestChat[0], "Veredicto: {9EC73D}Aprobado{FFFFFF}", true) != -1
+        && strfind(TestChat[0], "Precisión: 100.0%") != -1 && TestLastMessageColour[0] == PRACTICE_SECTION_COLOUR,
         "only approved word is green, label and trailing score are white, accuracy has a percent sign");
     Check(TestLongestMessage < 144, "each result line fits the chat limit");
 
@@ -673,7 +703,7 @@ stock TestStorageMigration()
     Check(PracticeSaveConfiguration(), "legacy layout can be upgraded on next save");
     new File:input = fopen(PRACTICE_CONFIG_FILE, io_read), header[32];
     PracticeReadLine(input, header, sizeof(header)); fclose(input);
-    Check(!strcmp(header, "SARP_PRACTICE 7"), "subsequent save upgrades storage to version 7");
+    Check(!strcmp(header, "SARP_PRACTICE 9"), "subsequent save upgrades storage to version 9");
     TestWriteConfigFixture("SARP_PRACTICE 2", "24 1 3 5 1 1 0 2 0");
     Check(!PracticeLoadConfiguration() && PracticeRules[0][PracticePassPoints] == 2 && !PracticeRules[0][PracticeRandomOrder],
         "invalid stored random flag cannot partially replace configuration");
@@ -718,6 +748,9 @@ stock TestStorageMigration()
 #include "shooting_practice_refinements.inc"
 #include "shooting_practice_feedback.inc"
 #include "shooting_practice_zones.inc"
+#include "shooting_practice_starts.inc"
+#include "shooting_practice_pause.inc"
+#include "shooting_practice_discovery.inc"
 
 main() {}
 public OnGameModeInit()
@@ -837,6 +870,13 @@ public OnGameModeInit()
     TestZoneSelection();
     TestIndependentZones();
     TestZoneStorage();
+    TestStartMenus();
+    TestStartSessions();
+    TestStartPreviews();
+    TestStartStorage();
+    TestConfigurationPause();
+    TestPracticeDiscovery();
+    TestIndicatorStorage();
     ResetTest();
     PracticeCleanup(0);
     printf("[Practice tests] %d assertions, %d failures", TestAssertions, TestFailures);

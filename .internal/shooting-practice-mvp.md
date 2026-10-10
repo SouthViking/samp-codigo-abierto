@@ -1,10 +1,10 @@
 # Shooting Practice MVP - Implementation Handoff
 
-Updated: 2026-10-08. Multiple-zone administration, independent sessions/editing, stable IDs,
-proximity selection and v7 file persistence/migration are implemented. Existing model editing,
+Updated: 2026-10-10. Multiple-zone administration, multiple starts per zone, independent zone sessions/editing,
+stable IDs, proximity hints, optional start pickups and v9 file persistence/migration are implemented. Existing model editing,
 private previews, mixed shoot/no-shoot scoring, permitted weapons, decimal timing and results remain.
-This increment was compiled and tested on an isolated Linux SA-MP 0.3.DL-R1 runtime. It does not deploy
-or restart a playable server. Account/faction adapters, restricted access, SQL and recorded history
+This increment passed isolated Windows SA-MP 0.3.DL-R1 tests and was deployed with an explicitly requested
+local server restart. Account/faction adapters, restricted access, SQL and recorded history
 are still future integrations, described in the data model linked below.
 
 - Fork: https://github.com/SouthViking/samp-codigo-abierto
@@ -89,7 +89,7 @@ One or more permitted weapon IDs 22-34, selectable independently. Players may sw
 unlisted weapons interrupt the round. Defaults: only 24, 1 point, 0 errors, preparation/exposure/interval 3/5/1 seconds,
 fixed order/distribution. Preparation accepts whole seconds from 1-30. Exposure accepts 0.1-60.0
 seconds and interval 0.0-30.0 seconds, in tenths, using a dot or comma decimal separator. Start radius 1.5 m, movement radius
-3 m, targets 3-100 m away in the same interior/world. Equipment is never granted, removed or replenished.
+3 m, targets 3-100 m from every post in the same interior/world. Equipment is never granted, removed or replenished.
 Spanish user-facing text; English implementation identifiers.
 
 ## Configuration, ownership and editing
@@ -100,7 +100,7 @@ Names have up to 48 characters and reject whitespace-only values, controls and c
 New zones start inactive. Activation requires a complete valid configuration; edits which make an
 active layout incomplete close it automatically until an administrator fixes and activates it again.
 
-The zone root offers direct start capture, targets, rules, preview toggle, eligible start/own cancellation,
+The zone root offers a start-point list, targets, rules, preview toggle, eligible start/own cancellation,
 confirmed reset, rename, activation/deactivation and confirmed archive. Archiving removes the zone
 from lists/usage but retains its ID/configuration in storage; there is no restore/purge UI this increment.
 Occupied zones cannot be edited, disabled, reset or archived. Other zones remain available.
@@ -118,13 +118,23 @@ Volver returns to rules. Each numeric input explains its effect, units, bounds, 
 and current value. Minimum net points and maximum identification errors are independent passing
 requirements. Without shoot targets, the points input explains that an objective must be added first.
 
-Selecting Punto de inicio on the root immediately saves the character position/facing and returns to
-the root. It has no submenu; preview is available only on the root. Reset confirmation uses the short
-Reiniciar button. The former summary dialog has been removed. Changing dimension requires confirming deletion
-of old targets; same-dimension moves retain them and can require distance corrections.
-Start capture can create or relocate the station anywhere within valid coordinates. It is exempt
-from the target-only 100 m draft radius, including while confirming a dimension change.
-Partial configurations can be saved; readiness is checked before practicing.
+Puntos de inicio opens a bounded list of up to ten posts. Añadir punto captures the current
+character position/facing/dimension and saves immediately. Selecting a point offers name, relocation
+to the character position, and confirmed deletion. Names are optional, up to 32 characters, with
+Punto N as the fallback. The root preview action remains in place. Reset uses Reiniciar and clears
+all starts, targets and rules. Removing the last start retains targets/rules and closes the zone.
+
+Posts share the zone's targets/rules and one exclusive session. Additional posts must share the
+dimension, remain within 100 m of other posts, and place existing targets 3-100 m away.
+Target editing validates against every marked post. A sole start retains legacy relocation behavior:
+same-dimension moves retain targets and may close an invalid zone, while dimension changes require
+confirmation to clear the old targets. With multiple posts a dimension change is rejected.
+
+Start selection uses the nearest marked post within 1.5 m in the player's dimension, with stable
+slot order for ties. The selected origin is frozen for movement checks, public cues, environmental
+messages and target dimension. Moving to another post does not change an ongoing round's origin.
+Objects remain public, with one active participant per zone. Different zones remain independent.
+Partial configurations can be saved. Readiness is checked before practicing.
 
 Creation chooses model and behavior, then opens native object editing. Existing targets offer
 name/model/behavior, move/rotate, duplicate, confirmed delete, then save as the last row.
@@ -132,6 +142,15 @@ New drafts end with save after move/rotate. The behavior menu consistently uses 
 by Save or EDIT_RESPONSE_FINAL; cancel discards all pending fields. Duplicates fill a free slot without
 changing their source. Choosing behavior sets fixed distribution on commit; administrators may then
 enable random distribution explicitly. Model/name/position-only edits preserve distribution.
+
+Target/start lists and target/start edit menus offer Cerrar menú with Continuar con /practicaconfig
+as the detail. Closing hides only the modal, preserving the private setup view, current section,
+selected start and owned target draft. Bare /practicaconfig or the matching explicit zone ID resumes
+that section; ordinary bare-command zone listing remains unchanged when no section is suspended.
+Lists refresh after another writer changes the zone. A stale selected-start context returns to
+the list instead of acting on a reused slot. Closing never saves a draft; Save remains the final row.
+Paused drafts retain writer ownership, while paused lists do not reserve the range. Lifecycle,
+permission/range loss and zone changes clear the context through the existing UI cleanup boundary.
 
 Each zone has one writer and its own revision. Other admins can inspect it but cannot mutate it while
 owned; its practice starts wait for commit/discard. Mutation requires alive/on-foot RCON state and is
@@ -228,15 +247,13 @@ No teleport/freeze.
 One neutral preparation action uses the existing roleplay name. One environmental /do-style line
 announces closure. Leaving the radius/dimension replaces the generic closure with
 "* Nombre Apellido abandona el puesto de tiro." using the participant's roleplay name, once.
-Only the participant receives the final result/reason. A completed result uses five chat lines with a white base:
-rules (minimum net points, maximum errors, +1/-1), results (hits and timed-out shoot targets),
-protected targets respected and identification errors, shots and plain precision, then verdict and
-net points. Only Aprobado is green or Reprobado red. Veredicto: and the trailing net points remain white.
-Precision includes the literal % sign and has no trailing parenthesis. Preformatted result lines go
-straight to the SA-MP SendClientMessage native without another variadic formatting pass. Zero shots display unavailable precision.
-Every line fits the client's 144-cell buffer. Interrupted attempts keep a short private reason.
-Radius/dimension departures report Incompleta: Cancelada automáticamente por salir del puesto de tiro.
-No chat per countdown, appearance, hit or omission.
+Only the participant receives the final result/reason. Completed results use seven chat lines:
+a CAMPO DE TIRO header, five unindented rows pairing fields, and a closing divider. Title, dividers
+and inline pipe separators use soft blue #A8C4D9. Data and labels stay white, with only Aprobado
+green or Reprobado red. The rows cover minimum points/maximum errors, hits/expired targets,
+protected targets respected/identification errors, shots/precision, and net points/verdict.
+Precision includes the literal % sign, with no parenthesis. Incomplete rounds use the same header,
+one white Incompleta reason line and closing divider. No per-line [Práctica] prefix.
 
 Built-in sounds: 1056 each countdown second, 1057 each successfully created/streamed target,
 1139 at closure. First appearance is the start signal; both behaviors sound identical.
@@ -254,17 +271,17 @@ Textdraw allocation failure preserves the audible countdown. The plain text avoi
 ## Storage and migration
 
 File: scriptfiles/shooting_practice.cfg relative to server working directory. The Windows launcher
-uses .local-server/scriptfiles/shooting_practice.cfg. New saves use SARP_PRACTICE 7:
+uses .local-server/scriptfiles/shooting_practice.cfg. New saves use SARP_PRACTICE 9:
 
 ```text
-SARP_PRACTICE 7
+SARP_PRACTICE 9
 REGISTRY <nextPositiveId> <recordCount>
-ZONE <id> <enabled:0|1> <archived:0|1>
+ZONE <id> <enabled:0|1> <archived:0|1> <indicators:0|1>
 ZONE_NAME <name>
 <weaponMask> <points> <preparation> <exposureMs> <intervalMs> <maxErrors> <randomOrder> <randomDistribution>
 <marked> <x> <y> <z> <rotZ> <interior> <world> <noShoot> <model> <rotX> <rotY>
 NAME <optional point name>
-... (eleven points, start then ten slots)
+... (twenty point records: original start, ten target slots, nine additional starts)
 END_ZONE
 ... (one record for each zone, including archived zones)
 END
@@ -281,12 +298,16 @@ and transforms. A playable legacy layout stays active; an incomplete one loads i
 convert their single weapon into one mask bit; V1-V3 use model 1271 and default X/Y rotation/name.
 V2 materializes its old protected quota on highest marked slots. V5 keeps the mask. V1-V5 exposure
 and interval convert validated seconds to milliseconds once; V6 retains exact milliseconds.
-Loading does not rewrite the source; the next confirmed edit/save upgrades the whole registry to v7.
-An empty installation starts with no zones; administrators create the first one explicitly.
+Loading does not rewrite the source; the next confirmed edit/save upgrades the whole registry to v9.
+V7 retains every zone, ID, state, rule and target, with its former start becoming point one.
+V8 preserves all twenty fixed point records per zone, allowing sparse starts and partial layouts
+without a start. Marked points share a dimension, starts have no model/target behavior, and active
+readiness requires all targets to fit every post. An empty installation starts with no zones.
 
 Loading validates all temporary records before publication and refuses reload while any zone is
 occupied or has a draft. Loading clears owned UI, increments revisions and rebinds selected stable IDs.
-An active incomplete v7 record is safely closed and exposes pending repair. Corrupt/unsupported,
+V9 retains those point records and adds the per-zone indicator flag. Formats 1-8 default it to off.
+An active incomplete v7/v8/v9 record is safely closed and exposes pending repair. Corrupt/unsupported,
 duplicate-ID or truncated files cannot partially replace live records.
 
 Saving writes shooting_practice.cfg.tmp and validates it before touching the primary. It preserves a
@@ -370,28 +391,37 @@ future supervision grants stay separate from configuration authority.
 | storage.inc | Whole-registry serialization, migration, validation, recovery and save status. |
 | sequence.inc | Frozen positions, pairs and randomization. |
 | editor.inc | Draft ownership, private preview, native editor lifecycle. |
+| start_setup.inc | Multiple start-point menus, capture, naming, relocation and deletion. |
 | setup.inc | Selected-zone dialogs, catalog, confirmations and revision guards. |
 | zone_setup.inc | Administrative registry commands/lists/lifecycle and public proximity selection. |
 | session.inc | Per-zone sessions, player lookup, target lifecycle and scoring. |
 | presentation.inc | Materials, audio, countdown overlay, roleplay, help/results. |
+| discovery.inc | Public decorative start pickups, proximity chat hints and resource lifecycle. |
 | hooks.inc | YSI callbacks, 50 ms pulse, 500 ms editor maintenance, shots, cleanup. |
 | header.inc | Module include order. |
 
 ## Validation and scope
 
-- 745 assertions, 0 failures on isolated Linux SA-MP 0.3.DL-R1 with sscanf 2.13.1; normal exit.
-  Deterministic adapters simulate player/UI/streamer/audio; Pawn VM, parsers and file I/O are real.
-  Existing scoring/editor/timing/report regressions still pass. Added coverage includes registry
-  creation/naming/activation/archive, pagination/stale stable IDs, capacity/overflow, RCON loss,
-  public proximity/overlap choice, two simultaneous rounds, isolated shots/counters/countdowns,
-  independent editing/previews, complete v7 persistence, migration 1-6, corrupt metadata, failed stage,
-  validated backup recovery and pending repair. Tests live in tests/shooting_practice_zones.inc.
+- 955 assertions, 0 failures on isolated Windows SA-MP 0.3.DL-R1 with sscanf 2.13.1, normal exit.
+  Deterministic adapters simulate player/UI/streamer/audio. Pawn VM, parsers and file I/O are real.
+  New start coverage includes CRUD, bounded/sparse lists, stale/revoked dialogs, common geometry,
+  multiple private markers and cleanup, nearest-post selection, public objects, exclusive zone use,
+  frozen origin/departure, v7 migration and v8 round trips/corrupt added starts.
+  Close/resume tests cover retained views/drafts, creation from a new position, matching/bare IDs,
+  stale records, zone changes, save ordering and permission/lifecycle/range cleanup.
+  Existing multi-zone, scoring/editor/timing/report and recovery regressions pass.
+  Discovery coverage includes per-zone pickup lifecycle, allocation rollback, sparse posts, dimension filters,
+  private entry hints with hysteresis, independent flags, v1-v8 migration and rejected v9 metadata.
+  Tests live in tests/shooting_practice_discovery.inc, tests/shooting_practice_starts.inc,
+  tests/shooting_practice_pause.inc and the existing test modules.
 - Full SARP.pwn and tests compile with Pawn 3.10.10, -;+ -(+ -d3 -E. Existing gamemode warning
   suppressions remain. Unix full compilation normalizes include separators in an ignored copy only.
   Spanish source uses Windows-1252; documents use UTF-8. Static dialog buffers avoid enlarging the
   gamemode's existing stack allowance.
-- No playable deployment/start/restart occurred in this increment. Prior Windows test/deployment
-  evidence remains in tests/README.md. Real mouse/dialog integration, visibility/collision, network
+- The latest build, including close/resume, pickups and the new result format, was deployed through
+  scripts/local-server.ps1 after the user's explicit restart request. UDP status confirms 127.0.0.1:7777.
+  The saved layout's SHA256 was unchanged across this restart. Prior test/deployment evidence remains
+  in tests/README.md. Real mouse/dialog integration, visibility/collision, network
   shots, sounds and live YSI/timer dispatch still need the client checks in the manual guide.
 
 Pending: real faction/group restricted access, host identities, SQL backend, history policy,
@@ -419,3 +449,22 @@ Blanco de tiro (disparar) or Blanco protegido (no disparar).
 Weapon fields show names. Dialog/chat/3D-label strings use Windows-1252; the catalog back button is
 Atrás, with GTA font 1's GXT glyph 0x98 for á. The custom-list selector accepts an optional back_text
 label, preserving defaults for other callers. Glyph reference: https://github.com/gta-reversed/gta-reversed/blob/master/source/game_sa/GxtChar.cpp.
+
+## Start indicators and discovery (2026-10-10)
+
+Indicadores de inicio is a saved per-zone toggle, off for new zones and all formats 1-8.
+It creates one public Desert Eagle pickup (model 348, type 1) per marked start, 0.35 m above
+its saved Z in the same interior/world. Pickups have no public labels, grant no equipment,
+and do not start a round. They remain visible during a practice. Disabling or archiving the
+zone hides them while preserving the preference. Resetting the layout restores off.
+Position changes refresh only the affected pickup. Allocation failures remove partial
+zone sets and maintenance can retry. Loading and shutdown dispose of owned handles.
+
+Independent of pickups, living non-NPC players on foot receive a private chat hint when
+entering the /practica radius (1.5 m) of an active playable start. The latch stays until
+leaving 3 m from that post, preventing boundary spam. Overlapping entries emit one hint.
+Dialogs/drafts and active participation suppress hints. This uses the same access seam
+as the command, with no new faction grant or public 3D text.
+
+Engine references: [model IDs](https://open.mp/docs/scripting/resources/pickupids) and
+[type 1 scripted pickups](https://open.mp/docs/scripting/resources/pickuptypes).

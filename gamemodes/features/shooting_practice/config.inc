@@ -7,8 +7,15 @@
     #define PRACTICE_MAX_ZONES (64)
 #endif
 #define PRACTICE_MAX_TARGETS (10)
+#define PRACTICE_MAX_STARTS (10)
+#define PRACTICE_POINT_COUNT (PRACTICE_MAX_TARGETS + PRACTICE_MAX_STARTS)
 #define PRACTICE_START_RADIUS (1.5)
 #define PRACTICE_ACTIVE_RADIUS (3.0)
+#define PRACTICE_START_PICKUP_MODEL (348)
+#define PRACTICE_START_PICKUP_TYPE (1)
+#define PRACTICE_START_PICKUP_Z (0.35)
+#define PRACTICE_SECTION_COLOUR (0xA8C4D9FF)
+#define PRACTICE_CHAT_SEPARATOR " {A8C4D9}|{FFFFFF} "
 #define PRACTICE_MAX_DISTANCE (100.0)
 // Legacy layouts keep the marked box; each target can now select its own model.
 #define PRACTICE_TARGET_MODEL (1271)
@@ -47,11 +54,12 @@ enum E_PRACTICE_RULE
     PracticeRandomTypes
 }
 
-// Slot 0 is the selected zone's start; slots 1..10 are its targets.
+// Keep the legacy slot 0 for start #1 and slots 1..10 for targets.
+// Additional starts occupy slots 11..19. Use the helpers to address starts.
 // TODO(SP-ACCESS/HISTORY): versioned group/faction whitelists and history policy
 // require host identity adapters. Current zones are public and training is transient.
 // The ten-target limit is per zone. Registry indices are not persistent IDs.
-new PracticePoints[PRACTICE_MAX_ZONES][PRACTICE_MAX_TARGETS + 1][E_PRACTICE_POINT];
+new PracticePoints[PRACTICE_MAX_ZONES][PRACTICE_POINT_COUNT][E_PRACTICE_POINT];
 // Preparation is whole seconds. Exposure and interval are milliseconds in 100 ms steps.
 new PracticeRules[PRACTICE_MAX_ZONES][E_PRACTICE_RULE];
 new const PracticeDefaultRules[E_PRACTICE_RULE] = {PRACTICE_WEAPON_DEFAULT, 1, 3, 5000, 1000, 0, 0, 0};
@@ -93,14 +101,6 @@ stock bool:PracticeNameValid(const name[])
     for (new i = 0; name[i]; i++)
         if (name[i] < ' ' || name[i] == '{' || name[i] == '}') return false;
     return true;
-}
-
-stock PracticePointDisplayName(const point[E_PRACTICE_POINT], slot, name[], size = sizeof(name))
-{
-    if (point[PracticePointName][0]) format(name, size, "%s", point[PracticePointName]);
-    else if (!slot) format(name, size, "Inicio");
-    else format(name, size, "Blanco %d", slot);
-    return 1;
 }
 
 stock bool:PracticeIsSupportedWeapon(weaponid)
@@ -216,12 +216,109 @@ stock bool:PracticeTargetDistanceValid(const start[E_PRACTICE_POINT], const targ
         && distanceSquared <= PRACTICE_MAX_DISTANCE * PRACTICE_MAX_DISTANCE;
 }
 
+stock PracticeStartSlot(index)
+{
+    return index == 0 ? 0 : PRACTICE_MAX_TARGETS + index;
+}
+
+stock bool:PracticeIsStartSlot(slot)
+{
+    return slot == 0 || (slot > PRACTICE_MAX_TARGETS && slot < PRACTICE_POINT_COUNT);
+}
+
+stock PracticeStartNumber(slot)
+{
+    return slot == 0 ? 1 : slot - PRACTICE_MAX_TARGETS + 1;
+}
+
+stock PracticeCountStarts(zone)
+{
+    new count;
+    for (new index = 0; index < PRACTICE_MAX_STARTS; index++)
+        if (PracticePoints[zone][PracticeStartSlot(index)][PracticePointSet]) count++;
+    return count;
+}
+
+stock PracticeFirstStart(zone)
+{
+    for (new index = 0; index < PRACTICE_MAX_STARTS; index++)
+    {
+        new slot = PracticeStartSlot(index);
+        if (PracticePoints[zone][slot][PracticePointSet]) return slot;
+    }
+    return -1;
+}
+
+stock bool:PracticeInStartDimension(zone, playerid)
+{
+    new first = PracticeFirstStart(zone);
+    return first >= 0 && GetPlayerInterior(playerid) == PracticePoints[zone][first][PracticePointInterior]
+        && GetPlayerVirtualWorld(playerid) == PracticePoints[zone][first][PracticePointWorld];
+}
+
+// Choose the nearest valid point in the player's dimension. Ties use slot order.
+stock PracticeNearestStart(zone, playerid, Float:radius)
+{
+    new nearest = -1, Float:best = radius * radius, Float:x, Float:y, Float:z;
+    GetPlayerPos(playerid, x, y, z);
+    for (new index = 0; index < PRACTICE_MAX_STARTS; index++)
+    {
+        new slot = PracticeStartSlot(index);
+        if (!PracticePoints[zone][slot][PracticePointSet]
+            || GetPlayerInterior(playerid) != PracticePoints[zone][slot][PracticePointInterior]
+            || GetPlayerVirtualWorld(playerid) != PracticePoints[zone][slot][PracticePointWorld]) continue;
+        new Float:dx = x - PracticePoints[zone][slot][PracticePointX];
+        new Float:dy = y - PracticePoints[zone][slot][PracticePointY];
+        new Float:dz = z - PracticePoints[zone][slot][PracticePointZ];
+        new Float:distance = dx*dx + dy*dy + dz*dz;
+        if (distance <= best && (nearest < 0 || distance < best))
+        { nearest = slot; best = distance; }
+    }
+    return nearest;
+}
+
+stock PracticePointDisplayName(const point[E_PRACTICE_POINT], slot, name[], size = sizeof(name))
+{
+    if (point[PracticePointName][0]) format(name, size, "%s", point[PracticePointName]);
+    else if (PracticeIsStartSlot(slot)) format(name, size, "Punto %d", PracticeStartNumber(slot));
+    else format(name, size, "Blanco %d", slot);
+    return 1;
+}
+
+stock bool:PracticeStartsValid(zone)
+{
+    new first = PracticeFirstStart(zone);
+    if (first < 0) return false;
+    for (new index = 0; index < PRACTICE_MAX_STARTS; index++)
+    {
+        new slot = PracticeStartSlot(index);
+        if (!PracticePoints[zone][slot][PracticePointSet]) continue;
+        if (!PracticePointValid(PracticePoints[zone][slot]) || PracticePoints[zone][slot][PracticePointNoShoot]
+            || PracticePoints[zone][slot][PracticePointModel]
+            || !PracticeSameDimension(PracticePoints[zone][first], PracticePoints[zone][slot])) return false;
+    }
+    return true;
+}
+
+stock bool:PracticeTargetFitsStarts(zone, const target[E_PRACTICE_POINT])
+{
+    if (!PracticeCountStarts(zone)) return false;
+    for (new index = 0; index < PRACTICE_MAX_STARTS; index++)
+    {
+        new slot = PracticeStartSlot(index);
+        if (PracticePoints[zone][slot][PracticePointSet]
+            && (!PracticeSameDimension(PracticePoints[zone][slot], target)
+                || !PracticeTargetDistanceValid(PracticePoints[zone][slot], target))) return false;
+    }
+    return true;
+}
+
 stock bool:PracticeConfigurationReady(zone, reason[], size = sizeof reason)
 {
-    if (!PracticePoints[zone][0][PracticePointSet])
-        format(reason, size, "Falta marcar el inicio. Abre Punto de inicio en /practicaconfig.");
-    else if (!PracticePointValid(PracticePoints[zone][0]) || PracticePoints[zone][0][PracticePointNoShoot])
-        format(reason, size, "La posición de inicio no es válida. Vuelve a marcarla.");
+    if (!PracticeCountStarts(zone))
+        format(reason, size, "Falta un punto de inicio. Abre Puntos de inicio en /practicaconfig.");
+    else if (!PracticeStartsValid(zone))
+        format(reason, size, "Revisa los puntos de inicio. Deben compartir interior y mundo.");
     else if (!PracticeRulesValid(PracticeRules[zone]))
         format(reason, size, "La configuración de armas, puntos o tiempos no es válida.");
     else if (!PracticeCountTargets(zone))
@@ -247,10 +344,9 @@ stock bool:PracticeConfigurationReady(zone, reason[], size = sizeof reason)
         {
             if (!PracticePoints[zone][slot][PracticePointSet]) continue;
             if (!PracticePointValid(PracticePoints[zone][slot]) || PracticeModelIndex(PracticePoints[zone][slot][PracticePointModel]) < 0
-                || !PracticeSameDimension(PracticePoints[zone][0], PracticePoints[zone][slot])
-                || !PracticeTargetDistanceValid(PracticePoints[zone][0], PracticePoints[zone][slot]))
+                || !PracticeTargetFitsStarts(zone, PracticePoints[zone][slot]))
             {
-                format(reason, size, "Revisa el blanco %d: mismo interior/mundo y entre 3 y 100 metros del inicio.", slot);
+                format(reason, size, "Revisa el blanco %d: mismo interior/mundo y entre 3 y 100 metros de cada punto de inicio.", slot);
                 return false;
             }
         }

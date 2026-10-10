@@ -11,5 +11,7 @@
 #include "features/shooting_practice/editor"
 #include "features/shooting_practice/storage"
 #include "features/shooting_practice/setup"
+#include "features/shooting_practice/start_setup"
 #include "features/shooting_practice/zone_setup"
+#include "features/shooting_practice/discovery"
 #include "features/shooting_practice/hooks"

@@ -11,6 +11,7 @@
 new PracticeZoneID[PRACTICE_MAX_ZONES];
 new PracticeZoneName[PRACTICE_MAX_ZONES][PRACTICE_ZONE_NAME_SIZE];
 new bool:PracticeZoneEnabled[PRACTICE_MAX_ZONES], bool:PracticeZoneArchived[PRACTICE_MAX_ZONES];
+new bool:PracticeZoneIndicators[PRACTICE_MAX_ZONES];
 new PracticeNextZoneID = 1, PracticeRegistryRevision;
 new bool:PracticeRegistrySavePending, bool:PracticeStorageBlocked;
 new PracticeSelectedZone[MAX_PLAYERS] = {-1, ...};
@@ -74,15 +75,16 @@ stock bool:PracticeZoneNameValid(const name[])
 
 stock PracticeInitializeRegistry()
 {
+    PracticeResetDiscovery();
     new empty[E_PRACTICE_POINT];
     for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
     {
         PracticeZoneID[zone] = 0;
         PracticeZoneName[zone][0] = EOS;
-        PracticeZoneEnabled[zone] = PracticeZoneArchived[zone] = PracticeSavePending[zone] = false;
+        PracticeZoneEnabled[zone] = PracticeZoneArchived[zone] = PracticeSavePending[zone] = PracticeZoneIndicators[zone] = false;
         PracticeRevision[zone]++;
         PracticeRules[zone] = PracticeDefaultRules;
-        for (new slot = 0; slot <= PRACTICE_MAX_TARGETS; slot++) PracticePoints[zone][slot] = empty;
+        for (new slot = 0; slot < PRACTICE_POINT_COUNT; slot++) PracticePoints[zone][slot] = empty;
     }
     PracticeNextZoneID = 1;
     PracticeRegistryRevision++;
@@ -98,7 +100,7 @@ stock PracticeCreateZone(const name[])
         if (PracticeZoneID[zone]) continue;
         PracticeZoneID[zone] = PracticeNextZoneID++;
         format(PracticeZoneName[zone], PRACTICE_ZONE_NAME_SIZE, "%s", name);
-        PracticeZoneEnabled[zone] = PracticeZoneArchived[zone] = false;
+        PracticeZoneEnabled[zone] = PracticeZoneArchived[zone] = PracticeZoneIndicators[zone] = false;
         PracticeRules[zone] = PracticeDefaultRules;
         PracticeRevision[zone]++;
         PracticeRegistryRevision++;

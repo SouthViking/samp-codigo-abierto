@@ -40,10 +40,10 @@ stock TestZoneAdministration()
     Check(!strcmp(PracticeZoneName[1], "LSSD Campo 100%"), "zone name rejects color injection");
     MainChoose(SP_MAIN_RENAME_ZONE); MenuInput("   ");
     Check(!strcmp(PracticeZoneName[1], "LSSD Campo 100%"), "zone name rejects whitespace-only input");
-    MainChoose(SP_MAIN_START_POINT);
+    MainChoose(SP_MAIN_START_POINT); MenuChoose(0);
     Check(PracticePoints[1][0][PracticePointSet] && PracticeCountTargets(0) == 3,
         "capturing start leaves other zone layout intact");
-    MainChoose(SP_MAIN_TARGETS); MenuChoose(0); SelectModel(1583); MenuChoose(0);
+    PracticeShowMain(0); MainChoose(SP_MAIN_TARGETS); MenuChoose(0); SelectModel(1583); MenuChoose(0);
     EditorResult(EDIT_RESPONSE_FINAL, 12.0);
     TestCommand_practicaconfig(0, "2"); MainChoose(SP_MAIN_TOGGLE_ZONE);
     Check(PracticeZoneEnabled[1] && PracticeCountTargets(1) == 1 && PracticePoints[1][1][PracticePointModel] == 1583,
@@ -228,7 +228,7 @@ stock TestZoneStorage()
     PracticeRules[second][PracticeWeaponMask] = PRACTICE_WEAPONS_ALL;
     PracticeRules[second][PracticeRandomOrder] = 1;
     PracticeZoneEnabled[archived] = false; PracticeZoneArchived[archived] = true;
-    Check(PracticeSaveConfiguration() && PracticeReadRegistry(PRACTICE_CONFIG_FILE), "v7 writes validated complete registry");
+    Check(PracticeSaveConfiguration() && PracticeReadRegistry(PRACTICE_CONFIG_FILE), "v8 writes validated complete registry");
     PracticeBindZone(1, second); PracticeZoneName[second][0] = EOS; PracticePoints[second][2][PracticePointX] = 0.0;
     Check(PracticeLoadConfiguration() && PracticeZoneID[second] == 2 && !strcmp(PracticeZoneName[second], "LSSD Academy 100%")
         && PracticeZoneEnabled[second] && PracticeZoneArchived[archived] && PracticeNextZoneID == 4 && PracticeSelectedZoneID[1] == 2,
@@ -270,19 +270,19 @@ stock TestZoneStorage()
     PracticeRules[0][PracticeExposure] = 5000;
     Check(PracticeLoadConfiguration() && PracticeRules[0][PracticeExposure] == 5000, "invalid abandoned stage never overrides valid primary");
 
-    new corruptLines[][] = {"REGISTRY 1 2", "REGISTRY 3 -1", "REGISTRY 3 2 trailing", "ZONE 1 2 0", "ZONE 0 1 0", "ZONE 1 1 1", "ZONE 1 1 0 trailing", "ZONE_NAME {FF0000}bad"};
+    new corruptLines[][] = {"REGISTRY 1 2", "REGISTRY 3 -1", "REGISTRY 3 2 trailing", "ZONE 1 2 0 0", "ZONE 0 1 0 0", "ZONE 1 1 1 0", "ZONE 1 1 0 0 trailing", "ZONE_NAME {FF0000}bad"};
     for (new i = 0; i < sizeof(corruptLines); i++)
     {
         ResetTest(); TestAddZone("Second"); PracticeSaveConfiguration();
         TestReplaceConfigLine(i < 3 ? 1 : (i == 7 ? 3 : 2), corruptLines[i]);
         Check(!PracticeLoadConfiguration() && PracticeZoneID[1] == 2, "malformed registry metadata rejects the entire file without partial replacement");
     }
-    ResetTest(); TestAddZone("Second"); PracticeSaveConfiguration(); TestReplaceConfigLine(28, "ZONE 1 1 0");
+    ResetTest(); TestAddZone("Second"); PracticeSaveConfiguration(); TestReplaceConfigLine(6 + 2 * PRACTICE_POINT_COUNT, "ZONE 1 1 0 0");
     Check(!PracticeLoadConfiguration() && PracticeZoneID[1] == 2, "duplicate persistent IDs reject whole registry");
     ResetTest(); PracticeSaveConfiguration(); TestReplaceConfigLine(5, "NAME bad");
-    Check(!PracticeLoadConfiguration(), "malformed v7 point line rejects file independently of save validation");
+    Check(!PracticeLoadConfiguration(), "malformed v8 point line rejects file independently of save validation");
 
-    ResetTest(0); PracticeZoneEnabled[0] = false; PracticeSaveConfiguration(); TestReplaceConfigLine(2, "ZONE 1 1 0");
+    ResetTest(0); PracticeZoneEnabled[0] = false; PracticeSaveConfiguration(); TestReplaceConfigLine(2, "ZONE 1 1 0 0");
     Check(PracticeLoadConfiguration() && !PracticeZoneEnabled[0] && PracticeRegistrySavePending,
         "incomplete active record loads configuration safely as inactive and requests repair");
     ResetTest(); PracticeSaveConfiguration(); PracticeCopyConfiguration(PRACTICE_CONFIG_FILE, PRACTICE_CONFIG_TEMP); fremove(PRACTICE_CONFIG_FILE);

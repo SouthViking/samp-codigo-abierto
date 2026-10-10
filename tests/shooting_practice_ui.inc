@@ -20,6 +20,17 @@ stock OpenTarget(row, playerid = 0)
     TestCommand_practicaconfig(playerid, "1"); MenuChoose(1, playerid); MenuChoose(row, playerid);
     return 1;
 }
+stock AddStart(playerid = 0)
+{
+    PracticeShowMain(playerid); MainChoose(SP_MAIN_START_POINT, playerid); MenuChoose(0, playerid);
+    return 1;
+}
+stock MarkExistingStart(row = 1, playerid = 0)
+{
+    PracticeShowMain(playerid); MainChoose(SP_MAIN_START_POINT, playerid);
+    MenuChoose(row, playerid); MenuChoose(1, playerid);
+    return 1;
+}
 stock SelectModel(modelid, response = 1, playerid = 0)
 {
     TestCatalogue[playerid] = false; // mSelection removes its own widgets before dispatch.
@@ -41,11 +52,11 @@ stock TestMenuConfiguration()
     TestCommand_practicaconfig(0, "1");
     Check(strfind(TestDialogBody[0], "Vista previa") != -1 && !strcmp(TestDialogTitle[0], "Zona #1: Campo de tiro") && MainHasAction(SP_MAIN_START_PRACTICE),
         "main menu displays preview and an available start action");
-    TestPosition[0][0] = 1.0; MenuChoose(0);
-    Check(PracticeMenuPage[0] == SP_MENU_MAIN && !PracticeConfigurationEditing(0)
+    TestPosition[0][0] = 1.0; MarkExistingStart();
+    Check(PracticeMenuPage[0] == SP_MENU_START && !PracticeConfigurationEditing(0)
         && PracticePoints[0][0][PracticePointX] == 1.0 && PracticeCountTargets(0) == 3
         && PracticeLoadConfiguration() && PracticePoints[0][0][PracticePointX] == 1.0,
-        "start row directly captures and persists current position while preserving same-dimension targets");
+        "start submenu captures and persists current position while preserving same-dimension targets");
     TestCommand_practicaconfig(0, "1"); MenuBack();
     Check(PracticeMenuPage[0] == SP_MENU_ZONES, "main returns to zone list");
     MenuBack(); Check(PracticeMenuPage[0] == SP_MENU_NONE, "closing zone list releases dialog");
@@ -75,19 +86,19 @@ stock TestMenuConfiguration()
     MenuChoose(0); MenuInput("123456789012345678901234567890123");
     Check(!PracticeDraft[0][PracticePointName][0], "names reject more than 32 characters");
     MenuChoose(0); MenuInput("Puerta principal"); MenuChoose(1); SelectModel(1583);
-    MenuChoose(2); MenuChoose(1); PracticeRules[0][PracticeRandomTypes] = 1; MenuChoose(6);
+    MenuChoose(2); MenuChoose(1); PracticeRules[0][PracticeRandomTypes] = 1; MenuChoose(7);
     Check(PracticePoints[0][1][PracticePointNoShoot] && PracticePoints[0][1][PracticePointModel] == 1583
         && !strcmp(PracticePoints[0][1][PracticePointName], "Puerta principal") && !PracticeRules[0][PracticeRandomTypes]
         && !PracticeConfigurationEditing(0), "save commits independent model/role/name and fixed assignment together");
     Check(PracticeLoadConfiguration() && PracticePoints[0][1][PracticePointNoShoot]
         && !strcmp(PracticePoints[0][1][PracticePointName], "Puerta principal"), "dialog saves survive reload");
-    OpenTarget(1); MenuChoose(0); MenuInput("-"); MenuChoose(6);
+    OpenTarget(1); MenuChoose(0); MenuInput("-"); MenuChoose(7);
     Check(!PracticePoints[0][1][PracticePointName][0], "dash restores automatic target name");
 
     ResetTest(0); PracticeBeginDraft(0, 1, true); PracticeDraftWizard[0] = false; PracticeShowDraftMenu(0);
     Check(strfind(TestDialogBody[0], "Guardar cambios") > strfind(TestDialogBody[0], "Mover y orientar")
         && strfind(TestDialogBody[0], "Duplicar blanco") == -1, "new-target actions also end with Save");
-    MenuChoose(4);
+    MenuChoose(5);
     Check(PracticePoints[0][1][PracticePointSet] && !PracticeConfigurationEditing(0), "new-target final Save row commits its draft");
     ResetTest(0); OpenTarget(0);
     Check(PracticeDraftNew[0] && PracticeCatalogueOpen[0] && !PracticeCountTargets(0), "add begins an unsaved model wizard");
@@ -129,13 +140,13 @@ stock TestMenuConfiguration()
     TestCommand_practicaconfig(0, "1"); MenuChoose(4);
     Check(!PracticeIsBusy(0), "main menu can cancel own active practice");
 
-    ResetTest(); TestWorld[0] = 7; TestCommand_practicaconfig(0, "1"); MenuChoose(0);
+    ResetTest(); TestWorld[0] = 7; TestCommand_practicaconfig(0, "1"); MarkExistingStart();
     Check(PracticeMenuPage[0] == SP_MENU_START_CONFIRM && PracticeCountTargets(0) == 3
         && PracticePoints[0][0][PracticePointWorld] == 0, "moving start to another world requires confirmation");
     MenuBack(); Check(PracticeCountTargets(0) == 3 && !PracticeConfigurationEditing(0), "cancel start change retains station");
-    MenuChoose(0); MenuChoose(0);
+    MenuChoose(1); MenuChoose(0);
     Check(!PracticeCountTargets(0) && PracticePoints[0][0][PracticePointWorld] == 7, "confirmed dimension change clears old targets");
-    TestPosition[0][0] = 25.0; MenuChoose(0);
+    TestPosition[0][0] = 25.0; MenuChoose(1);
     Check(PracticePoints[0][0][PracticePointX] == 25.0 && PracticePoints[0][0][PracticePointAngle] == 90.0,
         "start uses character position and facing");
 
@@ -227,7 +238,7 @@ stock TestPreviews()
     PracticePoints[0][2][PracticePointAngle] = 33.0;
     format(PracticePoints[0][2][PracticePointName], PRACTICE_NAME_SIZE, "Civil junto a puerta");
     TestCommand_practicaconfig(0, "1"); MenuChoose(3);
-    new objectid = PracticePreviewObjects[0][1], cp = PracticePreviewCheckpoint[0], label = PracticePreviewLabels[0][2];
+    new objectid = PracticePreviewObjects[0][1], cp = PracticePreviewCheckpoint[0][0], label = PracticePreviewLabels[0][2];
     Check(PracticePreviewActive[0] && PracticeMenuPage[0] == SP_MENU_NONE && TestLiveObjects == 3 && TestLiveLabels == 4 && TestLiveCP == 1,
         "preview closes dialog and shows all targets plus start checkpoint");
     Check(TestObjectOwner[objectid] == 0 && TestCPOwner[cp] == 0 && TestLabelOwner[label] == 0,
@@ -306,7 +317,7 @@ stock TestStorageV4()
     PracticePoints[0][1][PracticePointName][0] = EOS;
     PracticeSaveConfiguration(); fremove(PRACTICE_CONFIG_BACKUP); fremove(PRACTICE_CONFIG_TEMP);
     bad = fopen(PRACTICE_CONFIG_FILE, io_readwrite);
-    fwrite(bad, "SARP_PRACTICE 9\r\n"); fclose(bad);
+    fwrite(bad, "SARP_PRACTICE 10\r\n"); fclose(bad);
     Check(!PracticeLoadConfiguration(), "unsupported storage version rejected");
 
     ResetTest(5); TestSetNoShoot(2);

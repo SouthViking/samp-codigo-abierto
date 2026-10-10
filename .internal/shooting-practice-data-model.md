@@ -3,9 +3,13 @@
 Fecha: 2026-10-08. Estado: modelo base definido para formalizar la especificación funcional;
 implementación e integración con el servidor principal pendientes.
 El [DDL propuesto](sql/shooting-practice.sql) no es una migración aplicada ni activa un backend SQL.
-El registro de múltiples zonas y su guardado en archivo v7 están implementados. Todas las zonas
+El registro de múltiples zonas y hasta diez puntos de inicio por zona y su guardado en archivo v9 están implementados. Todas las zonas
 actuales son públicas y los resultados siguen sin historial persistente. Las reglas de acceso,
 identidad y supervisión de este documento corresponden a la integración futura.
+
+Actualización del prototipo: 2026-10-10. El DDL del 2026-10-08 todavía modela un inicio por versión.
+Antes de integrar SQL deberá incorporar una colección de puntos por versión y el punto elegido
+como parte del contexto inmutable de cada evaluación. Ese ajuste SQL sigue pendiente.
 
 ## Alcance acordado
 
@@ -14,8 +18,9 @@ identidad y supervisión de este documento corresponden a la integración futura
 - `/practicaconfig` abrirá un listado de zonas con ID, nombre, estado, modo de acceso y evaluaciones habilitadas.
   `/practicaconfig <id>` abrirá directamente la configuración de esa zona.
   Ambos caminos y las respuestas de diálogos comprueban el permiso administrativo.
-- Cada zona tiene su inicio, interior/mundo, hasta diez blancos y reglas propias.
-  Distintas zonas pueden funcionar simultáneamente; cada jugador participa en una sola ronda.
+- Cada zona tiene hasta diez puntos de inicio en el mismo interior/mundo, diez blancos y reglas propias.
+  Sus puestos comparten blancos y admiten una sola práctica activa por zona.
+  Distintas zonas pueden funcionar simultáneamente. Cada jugador participa en una sola ronda.
 - Solo hay dos modos de acceso: **libre** y **restringido**. En el restringido, una whitelist
   permite uno o varios grupos/facciones. Basta pertenecer a uno de ellos. No hay whitelist individual.
 - Una zona restringida sin grupos permitidos o sin identidad/pertenencia resoluble no permite iniciar.

@@ -40,6 +40,8 @@ enum E_PRACTICE_SESSION
 // One independent session/sequence per zone, with one active attempt per player.
 // The player lookup routes shots and lifecycle cleanup to their owning zone.
 new PracticeSession[PRACTICE_MAX_ZONES][E_PRACTICE_SESSION];
+new PracticeSessionOrigin[PRACTICE_MAX_ZONES][E_PRACTICE_POINT];
+new PracticeSessionStartSlot[PRACTICE_MAX_ZONES] = {-1, ...};
 new PracticeSequenceSlots[PRACTICE_MAX_ZONES][PRACTICE_MAX_TARGETS];
 new bool:PracticeSequenceNoShoot[PRACTICE_MAX_ZONES][PRACTICE_MAX_TARGETS];
 new PracticeSequenceModels[PRACTICE_MAX_ZONES][PRACTICE_MAX_TARGETS];
@@ -79,7 +81,7 @@ stock PracticeRemoveTarget(zone)
     return 1;
 }
 
-stock PracticeCleanup(zone)
+stock PracticeCleanup(zone, bool:keepOrigin = false)
 {
     if (zone < 0 || zone >= PRACTICE_MAX_ZONES) return 0;
     new playerid = PracticeSession[zone][PracticePlayer];
@@ -92,6 +94,12 @@ stock PracticeCleanup(zone)
     new empty[E_PRACTICE_SESSION];
     PracticeSession[zone] = empty;
     PracticeSession[zone][PracticePlayer] = INVALID_PLAYER_ID;
+    if (!keepOrigin)
+    {
+        new emptyOrigin[E_PRACTICE_POINT];
+        PracticeSessionOrigin[zone] = emptyOrigin;
+        PracticeSessionStartSlot[zone] = -1;
+    }
     for (new index = 0; index < PRACTICE_MAX_TARGETS; index++)
     {
         PracticeSequenceSlots[zone][index] = 0;
@@ -123,9 +131,13 @@ stock PracticeEnd(zone, bool:completed, const reason[] = "", bool:notify = true,
     // rules. Failed/cancelled evaluations stay recorded; interruptions have
     // no verdict. Persist idempotently, with durable retry after a failed close.
     // Always clean up; never claim a saved result before persistence is confirmed.
-    PracticeCleanup(zone);
+    // Keep the frozen origin through the final public cue, including abandonment.
+    PracticeCleanup(zone, true);
     new playerid = result[PracticePlayer];
     PracticePresentEnd(zone, completed, playerid, abandoned);
+    new emptyOrigin[E_PRACTICE_POINT];
+    PracticeSessionOrigin[zone] = emptyOrigin;
+    PracticeSessionStartSlot[zone] = -1;
     if (notify && IsPlayerConnected(playerid))
         PracticeReportResult(playerid, completed, result, reason);
     return 1;
@@ -159,10 +171,10 @@ stock bool:PracticeParticipantValid(zone)
         PracticeEnd(zone, false, "debes permanecer vivo y a pie.");
         return false;
     }
-    if (GetPlayerInterior(playerid) != PracticePoints[zone][0][PracticePointInterior]
-        || GetPlayerVirtualWorld(playerid) != PracticePoints[zone][0][PracticePointWorld]
-        || !IsPlayerInRangeOfPoint(playerid, PRACTICE_ACTIVE_RADIUS, PracticePoints[zone][0][PracticePointX],
-            PracticePoints[zone][0][PracticePointY], PracticePoints[zone][0][PracticePointZ]))
+    if (GetPlayerInterior(playerid) != PracticeSessionOrigin[zone][PracticePointInterior]
+        || GetPlayerVirtualWorld(playerid) != PracticeSessionOrigin[zone][PracticePointWorld]
+        || !IsPlayerInRangeOfPoint(playerid, PRACTICE_ACTIVE_RADIUS, PracticeSessionOrigin[zone][PracticePointX],
+            PracticeSessionOrigin[zone][PracticePointY], PracticeSessionOrigin[zone][PracticePointZ]))
     {
         PracticeEnd(zone, false, "Cancelada automáticamente por salir del puesto de tiro.", true, true);
         return false;
@@ -203,7 +215,7 @@ stock PracticeShowNextTarget(zone, now)
         PracticePoints[zone][slot][PracticePointX], PracticePoints[zone][slot][PracticePointY],
         PracticePoints[zone][slot][PracticePointZ] + PRACTICE_TARGET_Z_OFFSET,
         PracticePoints[zone][slot][PracticePointRotX], PracticePoints[zone][slot][PracticePointRotY], PracticePoints[zone][slot][PracticePointAngle],
-        PracticePoints[zone][0][PracticePointWorld], PracticePoints[zone][0][PracticePointInterior]);
+        PracticeSessionOrigin[zone][PracticePointWorld], PracticeSessionOrigin[zone][PracticePointInterior]);
     PracticeSession[zone][PracticeObject] = objectid;
     if (objectid == INVALID_STREAMER_ID || !IsValidDynamicObject(objectid))
         return PracticeEnd(zone, false, "no se pudo crear el blanco.");
@@ -325,7 +337,7 @@ stock bool:PracticeStartReady(zone, playerid, reason[], size = sizeof(reason))
     {
         if (PracticeSession[zone][PracticePlayer] == playerid)
             format(reason, size, "Ya tienes una práctica activa. Usa /practica cancelar.");
-        else format(reason, size, "El puesto de tiro está ocupado.");
+        else format(reason, size, "Hay una práctica activa en este campo de tiro. Espera a que termine.");
     }
     else if (!PracticeConfigurationReady(zone, reason, size)) return false;
     else if (!PracticeCanUseStation(zone, playerid)) format(reason, size, "No tienes acceso a este puesto de tiro.");
@@ -335,11 +347,8 @@ stock bool:PracticeStartReady(zone, playerid, reason[], size = sizeof(reason))
         GetPlayerHealth(playerid, health);
         if (GetPlayerState(playerid) != PLAYER_STATE_ONFOOT || health <= 0.0)
             format(reason, size, "Debes estar vivo y a pie para iniciar.");
-        else if (GetPlayerInterior(playerid) != PracticePoints[zone][0][PracticePointInterior]
-            || GetPlayerVirtualWorld(playerid) != PracticePoints[zone][0][PracticePointWorld]
-            || !IsPlayerInRangeOfPoint(playerid, PRACTICE_START_RADIUS, PracticePoints[zone][0][PracticePointX],
-                PracticePoints[zone][0][PracticePointY], PracticePoints[zone][0][PracticePointZ]))
-            format(reason, size, "Acércate al punto de inicio del puesto de tiro.");
+        else if (PracticeNearestStart(zone, playerid, PRACTICE_START_RADIUS) < 0)
+            format(reason, size, "Acércate a uno de los puntos de inicio del campo de tiro.");
         else if (!PracticeWeaponAllowed(GetPlayerWeapon(playerid), PracticeRules[zone][PracticeWeaponMask]))
             format(reason, size, "Equipa una de las armas permitidas antes de iniciar.");
         else { reason[0] = EOS; return true; }
@@ -366,6 +375,8 @@ stock PracticeStart(zone, playerid)
     PracticeCleanup(zone);
     PracticeHideAllPreviews(zone);
     PracticeHidePreview(playerid);
+    PracticeSessionStartSlot[zone] = PracticeNearestStart(zone, playerid, PRACTICE_START_RADIUS);
+    PracticeSessionOrigin[zone] = PracticePoints[zone][PracticeSessionStartSlot[zone]];
     PracticeSession[zone][PracticePlayer] = playerid;
     PracticePlayerZone[playerid] = zone;
     // TODO(SP-DB-IDENTITY): for recorded evaluations, capture the selected zone

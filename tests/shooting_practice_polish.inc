@@ -8,7 +8,7 @@ stock TestPreviewProtection()
     PracticePoints[0][1][PracticePointAngle] = 90.0;
     PracticeShowPreview(0); PracticeShowPreview(1);
     new hit = PracticePreviewObjects[0][0], neighbour = PracticePreviewObjects[0][1],
-        otherViewer = PracticePreviewObjects[1][0], checkpoint = PracticePreviewCheckpoint[0],
+        otherViewer = PracticePreviewObjects[1][0], checkpoint = PracticePreviewCheckpoint[0][0],
         label = PracticePreviewLabels[0][2], created = TestNextObject, revision = PracticeRevision[0];
     Check(PracticeProtectPreviewShot(0, hit) && PracticeProtectPreviewShot(0, hit)
         && TestNextObject == created && TestObjects[hit],
@@ -25,7 +25,7 @@ stock TestPreviewProtection()
         && TestObjectPosition[repaired][4] == 35.0 && TestObjectPosition[repaired][5] == 90.0,
         "replacement retains saved model, position and complete orientation");
     Check(PracticePreviewObjects[0][1] == neighbour && PracticePreviewObjects[1][0] == otherViewer
-        && PracticePreviewCheckpoint[0] == checkpoint && PracticePreviewLabels[0][2] == label
+        && PracticePreviewCheckpoint[0][0] == checkpoint && PracticePreviewLabels[0][2] == label
         && PracticeRevision[0] == revision && !PracticeIsBusy(0),
         "repair preserves neighbours, other viewers, start marker, configuration and scoring");
     PracticeProtectPreviewShot(0, repaired); PracticeHidePreview(0);
@@ -91,7 +91,7 @@ stock TestDecimalTimings()
         "v6 round trip retains exact milliseconds");
     new File:input = fopen(PRACTICE_CONFIG_FILE, io_read), header[32];
     PracticeReadLine(input, header, sizeof(header)); fclose(input);
-    Check(!strcmp(header, "SARP_PRACTICE 7"), "fractional timing uses version 7 storage");
+    Check(!strcmp(header, "SARP_PRACTICE 9"), "fractional timing uses version 9 storage");
     for (new version = 1; version <= 5; version++)
     {
         new rules[64]; format(header, sizeof(header), "SARP_PRACTICE %d", version);

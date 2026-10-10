@@ -41,6 +41,7 @@ hook OnGameModeExit()
     if (PracticePulseTimer) KillTimer(PracticePulseTimer);
     PracticePulseTimer = 0;
     for (new playerid = 0; playerid < MAX_PLAYERS; playerid++) PracticeResetUI(playerid);
+    PracticeResetDiscovery();
     // TODO(SP-DB-SHUTDOWN): snapshot active recorded evaluations as interrupted
     // before cleanup; training stays unrecorded. Drain writes in the host's
     // controlled shutdown before closing its connection; this final hook alone
@@ -53,6 +54,7 @@ hook OnGameModeExit()
 hook Task500()
 {
     PracticeEditorTick();
+    PracticeDiscoveryTick();
     return 1;
 }
 
@@ -88,6 +90,7 @@ hook OnPlayerDeath(playerid, killerid, reason)
 
 hook OnPlayerDisconnect(playerid, reason)
 {
+    PracticeResetHint(playerid);
     PracticeResetUI(playerid);
     new zone = PracticeGetPlayerZone(playerid);
     if (zone >= 0) PracticeEnd(zone, false, "desconexión", false);
@@ -107,6 +110,7 @@ hook OnPlayerStateChange(playerid, newstate, oldstate)
 
 hook OnPlayerConnect(playerid)
 {
+    PracticeResetHint(playerid);
     new zone = PracticeGetPlayerZone(playerid);
     if (zone >= 0) PracticeCleanup(zone);
     PracticeHideCountdown(playerid);

@@ -151,7 +151,7 @@ stock TestCountdownAndDeparture()
     PracticeTick(0, TestNow);
     Check(!PracticeIsBusy(0) && !TestTDCount[0] && !strcmp(TestLastMessage[1], "* Test Player 0 abandona el puesto de tiro."),
         "walking out during countdown removes overlay and announces named departure");
-    Check(!strcmp(TestLastMessage[0], "[Práctica] Incompleta: Cancelada automáticamente por salir del puesto de tiro."),
+    Check(strfind(TestChat[0], "Incompleta: Cancelada automáticamente por salir del puesto de tiro.") >= 0,
         "automatic departure reports the exact private incomplete reason");
     Check(TestMessages[1] == 2 && TestMessages[2] == 1 && TestMessages[3] == 1 && TestMessages[4] == 1,
         "departure is delivered only to observers near the original station in the same dimension");
@@ -181,20 +181,20 @@ stock TestDetailedResults()
     ResetTest(4); TestSetNoShoot(2); ShowFirstTarget();
     Shoot(true); AdvanceInterval(); TestNow += 5000; PracticeTick(0, TestNow);
     AdvanceInterval(); TestNow += 5000; PracticeTick(0, TestNow); AdvanceInterval(); Shoot(false);
-    Check(strfind(TestChat[0], "Veredicto: {FF0000}Reprobado{FFFFFF}. Puntuación neta: 0.", true) != -1
-        && TestLastMessageColour[0] == COLOR_WHITE
-        && strfind(TestChat[0], "Reglas. Puntos netos mínimos: 1. Errores máximos: 0.") != -1,
+    Check(strfind(TestChat[0], "Puntuación neta: 0 {A8C4D9}|{FFFFFF} Veredicto: {FF0000}Reprobado{FFFFFF}", true) != -1
+        && TestLastMessageColour[0] == PRACTICE_SECTION_COLOUR
+        && strfind(TestChat[0], "Puntos mínimos: 1 {A8C4D9}|{FFFFFF} Errores máximos: 0") != -1,
         "only failed word is red, while label, trailing score and thresholds are white");
-    Check(strfind(TestChat[0], "Resultados. Aciertos: 1/2. Sin impactar a tiempo: 1.") != -1
-        && strfind(TestChat[0], "Protegidos respetados: 1/2. Errores de identificación: 1.") != -1,
+    Check(strfind(TestChat[0], "Aciertos: 1/2 {A8C4D9}|{FFFFFF} Sin impactar a tiempo: 1") != -1
+        && strfind(TestChat[0], "Protegidos respetados: 1/2 {A8C4D9}|{FFFFFF} Errores de identificación: 1") != -1,
         "report separates missed shoot targets, correct restraint and identification errors");
-    Check(strfind(TestChat[0], "Disparos: 2. Precisión: 50.0%.") != -1
-        && strfind(TestChat[0], "% (") == -1 && strfind(TestLastMessage[0], "Veredicto:") != -1,
+    Check(strfind(TestChat[0], "Disparos: 2 {A8C4D9}|{FFFFFF} Precisión: 50.0%") != -1
+        && strfind(TestChat[0], "% (") == -1 && strfind(TestChat[0], "Veredicto:") != -1,
         "accuracy has no attached explanation and verdict gets its own final line");
-    Check(TestPrivateMessages[0] == 5 && !TestPrivateMessages[1] && TestLongestMessage < 144 && !TestResultColourWrong,
-        "all five result lines use white, with only the verdict word embedded in color, within chat limits");
+    Check(TestPrivateMessages[0] == 7 && !TestPrivateMessages[1] && TestLongestMessage < 144 && !TestResultColourWrong,
+        "five white result rows and two soft blue dividers fit within chat limits");
     ResetTest(1); ShowFirstTarget(); TestNow += 5000; PracticeTick(0, TestNow);
-    Check(strfind(TestChat[0], "Disparos: 0. Precisión: no disponible.") != -1 && !TestResultColourWrong,
+    Check(strfind(TestChat[0], "Disparos: 0 {A8C4D9}|{FFFFFF} Precisión: no disponible") != -1 && !TestResultColourWrong,
         "zero-shot report leaves precision unavailable in white");
 }
 
@@ -202,15 +202,15 @@ stock TestExtraShotPrecision()
 {
     ResetTest(1); ShowFirstTarget(); Shoot(true);
     Check(TestResult == 1 && TestResultShots == 1 && TestResultHits == 1
-        && strfind(TestChat[0], "Precisión: 100.0%.") != -1,
+        && strfind(TestChat[0], "Precisión: 100.0%") != -1,
         "one shot and one hit give full accuracy");
     ResetTest(1); ShowFirstTarget(); Shoot(false); Shoot(false); Shoot(true);
     Check(TestResult == 1 && TestResultShots == 3 && TestResultHits == 1
-        && strfind(TestChat[0], "Precisión: 33.3%.") != -1,
+        && strfind(TestChat[0], "Precisión: 33.3%") != -1,
         "repeat attempts on one target lower accuracy while keeping the net-points verdict");
     ResetTest(2); PracticeRules[0][PracticePassPoints] = 2; ShowFirstTarget();
     Shoot(false); Shoot(true); Shoot(true); AdvanceInterval(); Shoot(true);
     Check(TestResult == 1 && TestResultHits == 2 && TestResultShots == 4 && !TestResultErrors
-        && strfind(TestChat[0], "Precisión: 50.0%.") != -1,
+        && strfind(TestChat[0], "Precisión: 50.0%") != -1,
         "misses and interval shots all lower accuracy without adding identification errors");
 }

@@ -102,7 +102,7 @@ stock TestPersistentSetupView()
     Check(!TestObjectValid(edited) && TestObjectValid(saved) && TestObjectModels[saved] == 1584
         && TestObjectPosition[saved][0] == 20.0 && PracticePreviewObjects[0][1] == neighbour
         && PracticePreviewObjects[0][2] == last, "save refreshes the edited object and retains untouched reference handles");
-    MenuChoose(2); MenuChoose(0); MenuInput("Puerta"); MenuChoose(6);
+    MenuChoose(2); MenuChoose(0); MenuInput("Puerta"); MenuChoose(7);
     Check(!strcmp(TestLabelText[PracticePreviewLabels[0][2]], "Puerta\nDISPARAR")
         && PracticePreviewObjects[0][0] == saved && PracticePreviewObjects[0][2] == last,
         "custom label has no numeric prefix and other saved references remain stable");
@@ -146,28 +146,28 @@ stock TestStartPointPlacement()
     ResetTest(0); PracticePoints[0][0][PracticePointSet] = false;
     TestPosition[0][0] = 1482.5; TestPosition[0][1] = -1720.25; TestPosition[0][2] = 13.75;
     TestWorld[0] = 7; TestInterior[0] = 3;
-    TestCommand_practicaconfig(0, "1"); MainChoose(SP_MAIN_START_POINT);
+    TestCommand_practicaconfig(0, "1"); AddStart();
     Check(PracticePoints[0][0][PracticePointSet] && PracticePoints[0][0][PracticePointX] == 1482.5
         && PracticePoints[0][0][PracticePointY] == -1720.25 && PracticePoints[0][0][PracticePointZ] == 13.75
         && PracticePoints[0][0][PracticePointAngle] == 90.0
         && PracticePoints[0][0][PracticePointWorld] == 7 && PracticePoints[0][0][PracticePointInterior] == 3,
         "first start captures real city coordinates without requiring proximity to an unset origin");
-    Check(PracticeMenuPage[0] == SP_MENU_MAIN && !PracticeHasDraft(0) && !PracticeConfigurationEditing(0),
-        "first start returns to the root and releases draft ownership");
+    Check(PracticeMenuPage[0] == SP_MENU_START && !PracticeHasDraft(0) && !PracticeConfigurationEditing(0),
+        "first start returns to the point menu and releases draft ownership");
     Check(PracticeLoadConfiguration() && PracticePoints[0][0][PracticePointX] == 1482.5
         && PracticePoints[0][0][PracticePointWorld] == 7 && !PracticeCountTargets(0),
         "distant first start is saved and survives reload");
 
     ResetTest(3); TestPosition[0][0] = 1500.0; TestPosition[0][1] = -1800.0; TestPosition[0][2] = 13.0;
-    TestCommand_practicaconfig(0, "1"); MainChoose(SP_MAIN_START_POINT);
+    TestCommand_practicaconfig(0, "1"); MarkExistingStart();
     Check(PracticePoints[0][0][PracticePointX] == 1500.0 && PracticePoints[0][0][PracticePointY] == -1800.0
         && PracticeCountTargets(0) == 3 && PracticePoints[0][1][PracticePointX] == 8.0,
         "same-dimension start relocation beyond 100 meters preserves saved targets");
-    Check(!PracticeConfigurationEditing(0) && PracticeMenuPage[0] == SP_MENU_MAIN,
+    Check(!PracticeConfigurationEditing(0) && PracticeMenuPage[0] == SP_MENU_START,
         "distant relocation releases configuration ownership");
 
     ResetTest(3); TestPosition[0][0] = 2000.0; TestWorld[0] = 8; TestInterior[0] = 2;
-    TestCommand_practicaconfig(0, "1"); MainChoose(SP_MAIN_START_POINT);
+    TestCommand_practicaconfig(0, "1"); MarkExistingStart();
     Check(PracticeMenuPage[0] == SP_MENU_START_CONFIRM && PracticeCountTargets(0) == 3
         && PracticePoints[0][0][PracticePointWorld] == 0, "distant dimension change retains old layout until confirmation");
     PracticeEditorTick();
@@ -181,7 +181,7 @@ stock TestStartPointPlacement()
         && PracticePoints[0][0][PracticePointWorld] == 8, "confirmed distant dimension change is persisted");
 
     ResetTest(3); TestPosition[0][0] = 2000.0; TestWorld[0] = 8;
-    TestCommand_practicaconfig(0, "1"); MainChoose(SP_MAIN_START_POINT);
+    TestCommand_practicaconfig(0, "1"); MarkExistingStart();
     PracticeEditorTick(); MenuBack();
     Check(PracticePoints[0][0][PracticePointX] == 0.0 && PracticePoints[0][0][PracticePointWorld] == 0
         && PracticeCountTargets(0) == 3 && !PracticeConfigurationEditing(0),

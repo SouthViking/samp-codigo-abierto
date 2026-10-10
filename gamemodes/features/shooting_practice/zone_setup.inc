@@ -127,6 +127,7 @@ stock PracticeArchiveZone(playerid)
         }
     PracticeZoneEnabled[zone] = false;
     PracticeZoneArchived[zone] = true;
+    PracticeSynchronizeIndicators(zone);
     PracticeRevision[zone]++;
     PracticeRegistryRevision++;
     PracticeSavePending[zone] = true;
@@ -137,16 +138,25 @@ stock PracticeArchiveZone(playerid)
 stock PracticeAdminCommand(playerid, const params[])
 {
     if (!PracticeIsAdministrator(playerid))
+    {
+        PracticeResetUI(playerid);
         return SendClientMessage(playerid, COLOR_FADE3, "Necesitas ser administrador RCON para configurar las zonas.");
+    }
     if (PracticeEditObject[playerid] != INVALID_STREAMER_ID)
         return SendClientMessage(playerid, COLOR_GRAD1, "Confirma o cancela el editor visual antes de volver al menú.");
-    if (isnull(params)) return PracticeShowZones(playerid);
+    if (isnull(params))
+    {
+        if (PracticePausedMenu[playerid] != SP_MENU_NONE) return PracticeResumeMenu(playerid);
+        return PracticeShowZones(playerid);
+    }
     new id;
     if (!PracticeParseZoneID(params, id))
         return SendClientMessage(playerid, COLOR_GRAD1, "Uso: /practicaconfig o /practicaconfig <ID de zona>.");
     new zone = PracticeFindZone(id);
     if (!PracticeZoneExists(zone) || PracticeZoneArchived[zone])
         return SendClientMessage(playerid, COLOR_FADE3, "No existe una zona disponible con ese ID.");
+    if (PracticeSelectedZoneValid(playerid) && PracticeSelectedZone[playerid] == zone
+        && PracticePausedMenu[playerid] != SP_MENU_NONE) return PracticeResumeMenu(playerid);
     if (PracticeSelectedZoneValid(playerid) && PracticeSelectedZone[playerid] == zone && PracticeHasDraft(playerid))
     {
         PracticeHideCatalogue(playerid);
@@ -160,12 +170,8 @@ stock PracticeAdminCommand(playerid, const params[])
 
 stock bool:PracticeNearZone(zone, playerid)
 {
-    return PracticeCanUseStation(zone, playerid) && PracticeZoneEnabled[zone] && PracticePoints[zone][0][PracticePointSet]
-        && IsPlayerConnected(playerid)
-        && GetPlayerInterior(playerid) == PracticePoints[zone][0][PracticePointInterior]
-        && GetPlayerVirtualWorld(playerid) == PracticePoints[zone][0][PracticePointWorld]
-        && IsPlayerInRangeOfPoint(playerid, PRACTICE_START_RADIUS, PracticePoints[zone][0][PracticePointX],
-            PracticePoints[zone][0][PracticePointY], PracticePoints[zone][0][PracticePointZ]);
+    return IsPlayerConnected(playerid) && PracticeCanUseStation(zone, playerid) && PracticeZoneEnabled[zone]
+        && PracticeNearestStart(zone, playerid, PRACTICE_START_RADIUS) >= 0;
 }
 
 stock PracticeShowPlayerZones(playerid, bool:help = false, page = 0)
