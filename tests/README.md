@@ -1,6 +1,8 @@
 # Shooting practice regression tests
 
-Current verification: 2026-10-10. This increment was built and tested in isolated Windows SA-MP 0.3.DL-R1. The playable server was subsequently rebuilt and restarted on the user's explicit request, with its saved layout hash preserved.
+Current verification: 2026-10-10. The native object selector and expanded catalogue were built and tested
+in isolated Windows SA-MP 0.3.DL-R1. The playable server retains the previous pickup/report build
+and its saved layout. The new catalogue has not been deployed or restarted into that server.
 
 The suite includes production configuration, registry, storage, sequence, session, presentation, editor and
 dialog code. shooting_practice_ui.inc exercises configuration flows; shooting_practice_refinements.inc
@@ -12,6 +14,8 @@ shooting_practice_starts.inc covers point CRUD, shared geometry, exclusive publi
 multiple preview markers, legacy v7 migration and v8 storage. shooting_practice_pause.inc covers
 closing/resuming sections, retained drafts/views, stale records, save ordering and cleanup.
 shooting_practice_discovery.inc covers per-zone pickups, private entry hints, allocation rollback and v1-v8 indicator migration.
+shooting_practice_catalogue.inc covers native cards, filters/pages, cursor ownership and allocation failure,
+plus expanded model storage, randomized pairs, previews and scoring paths.
 Player state, clock, audio,
 dialog rendering, model cards and streamer operations use deterministic adapters.
 Pawn execution, format, sscanf 2.13.1 and file I/O are real. Results are captured before the actual
@@ -33,7 +37,30 @@ positions, configuration, AMX and logs are not overwritten.
 The tests intentionally overwrite their own scriptfiles/shooting_practice.cfg, .tmp and .bak.
 Never run the test AMX in a live/playable server directory.
 
-## Recorded verification: 2026-10-10
+## Recorded verification: 2026-10-10 — object catalogue
+
+**1228 assertions, 0 failures** on isolated Windows SA-MP 0.3.DL-R1, normal process exit.
+Test log: .local-server/practice-tests/14e3549889c94a79adf881d45670b776/server_log.txt.
+Tests and full SARP.pwn compile with Pawn 3.10.10 and -;+ -(+ -d3 -E.
+The full AMX was written outside the playable runtime. No playable server file/process was changed.
+
+New coverage:
+
+- Six named cards per page, font 1 text/font 5 previews, model bindings and preview dimensions.
+- Category filters, disabled boundary navigation, redraw ownership and cursor setup before showing.
+- Foreign/invalid handles, Back/ESC, native cancellation re-entry and pending edit preservation.
+- New-target wizard cancellation/placement, RCON/revision/dimension/range loss and disconnect cleanup.
+- Initial and partial redraw allocation failure without leaked textdraws or a stuck cursor/writer.
+- All nine model IDs persist in v9 without migration and retain behavior under randomization.
+- Added bottles/can/cone use exact model IDs in previews and frozen sessions, one-hit scoring
+  and protected air-shot errors.
+- All earlier regressions below.
+
+The harness captures native TextDraw arguments and logical click dispatch. Actual GTA rendering,
+mouse hit areas, GXT accents, collisions and breakable model/network behavior remain client checks
+in the [manual guide](../.internal/shooting-practice-testing.md).
+
+## Previous verification: 2026-10-10 — start indicators and reports
 
 **955 assertions, 0 failures** on isolated Windows SA-MP 0.3.DL-R1, normal process exit.
 Full SARP.pwn and tests compile with Pawn 3.10.10 and warnings treated as errors.
@@ -130,7 +157,7 @@ its layout hash, following explicitly requested restarts. The user subsequently 
 The latest explicit restart validates loading of the current build, not actual client rendering. Do not restart a playable server
 automatically during the user's in-game feedback.
 
-Adapters do not execute the actual easyDialog/mSelection/YSI dispatcher, render the client,
+Adapters do not execute the actual easyDialog/YSI dispatcher or native mouse selection, render the client,
 move a real cursor, verify collision/network shot reporting or native model breakage, exercise the
 production timer dispatcher, or hear sounds. Preview repair after reported bullet hits is tested,
 not native object invulnerability against melee/explosions.

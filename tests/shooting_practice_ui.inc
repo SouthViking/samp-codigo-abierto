@@ -31,10 +31,25 @@ stock MarkExistingStart(row = 1, playerid = 0)
     MenuChoose(row, playerid); MenuChoose(1, playerid);
     return 1;
 }
+stock ClickCatalogueAction(action, playerid = 0)
+{
+    for (new i = 0; i < PracticeCatalogueDrawCount[playerid]; i++)
+        if (PracticeCatalogueActions[playerid][i] == action)
+            return PracticeHandleCatalogueClick(playerid, PracticeCatalogueDraws[playerid][i]);
+    return 0;
+}
+stock EscapeCatalogue(playerid = 0)
+{
+    TestCatalogue[playerid] = false; // The client releases the cursor on ESC.
+    return PracticeHandleCatalogueEscape(playerid);
+}
 stock SelectModel(modelid, response = 1, playerid = 0)
 {
-    TestCatalogue[playerid] = false; // mSelection removes its own widgets before dispatch.
-    return PracticeHandleModelSelection(playerid, response, modelid);
+    if (!response) return EscapeCatalogue(playerid);
+    new model = PracticeModelIndex(modelid);
+    if (model < 0) return 0;
+    ClickCatalogueAction(SP_CATALOGUE_CATEGORY - _:PracticeModels[model][PracticeModelCategory], playerid);
+    return ClickCatalogueAction(model, playerid);
 }
 stock EditorResult(response, Float:x = 12.0, Float:y = 0.0, Float:z = 0.0,
     Float:rx = 0.0, Float:ry = 0.0, Float:rz = 0.0, playerid = 0)
@@ -72,7 +87,7 @@ stock TestMenuConfiguration()
     Check(!strcmp(PracticeDraft[0][PracticePointName], "Pasillo norte") && !PracticePoints[0][1][PracticePointName][0],
         "name remains draft until explicit save");
     MenuChoose(1);
-    Check(PracticeCatalogueOpen[0] && TestTDCount[0] == sizeof(PracticeModels), "catalogue shows named model previews");
+    Check(PracticeCatalogueOpen[0] && TestCatalogue[0] && TestTDCount[0] == 38, "catalogue shows named model previews");
     SelectModel(1585);
     Check(PracticeDraft[0][PracticePointModel] == 1585 && !PracticeDraft[0][PracticePointNoShoot]
         && !TestTDCount[0], "civilian model can have shoot behavior and catalogue labels are cleaned");

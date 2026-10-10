@@ -127,8 +127,14 @@ hook OnPlayerEditDynObject(playerid, objectid, response, Float:x, Float:y, Float
     return 1;
 }
 
-hook OnPlayerModelSelectionEx(playerid, response, extraid, modelid)
+hook OnPlayerClickPlayerTextDraw(playerid, PlayerText:playertextid)
 {
-    if (extraid == PRACTICE_CATALOGUE_ID) PracticeHandleModelSelection(playerid, response, modelid);
+    if (PracticeHandleCatalogueClick(playerid, playertextid)) return ~1;
+    return 1;
+}
+
+hook OnPlayerClickTextDraw(playerid, Text:clickedid)
+{
+    if (clickedid == Text:INVALID_TEXT_DRAW && PracticeHandleCatalogueEscape(playerid)) return ~1;
     return 1;
 }

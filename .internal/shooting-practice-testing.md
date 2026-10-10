@@ -2,7 +2,8 @@
 
 Actualizado: 2026-10-10. Hasta 64 zonas independientes por defecto, diez puntos de inicio y diez blancos por zona,
 un participante por zona y una ronda por jugador. Las zonas archivadas cuentan para ese límite.
-Esta entrega está compilada, probada en un servidor aislado y aplicada al servidor local tras el reinicio solicitado.
+El selector de objetos renovado y los modelos nuevos están compilados y probados en un servidor aislado.
+Para probarlos en el servidor local falta un reinicio solicitado. El servidor encendido conserva la entrega anterior.
 Todas las zonas actuales son públicas. Facciones, historial y supervisión quedan para la siguiente integración.
 
 ## Entrar y abrir la configuración
@@ -72,8 +73,12 @@ Revisa sus distancias y vuelve a activarla cuando sea válida.
 
 1. Acércate a menos de **100 metros de uno de los puntos de inicio**, en el mismo interior y mundo.
    Abre **Blancos > Añadir blanco**. Desde otra ciudad se rechaza la creación antes de abrir el editor.
-2. Elige una tarjeta del catálogo: **Caja marcada (1271)**, **Silueta armada A/B (1583/1584)**
-   o **Silueta civil A/B (1585/1586)**. Cada tarjeta muestra el objeto y su nombre.
+2. Elige una tarjeta del catálogo. Cada tarjeta muestra el objeto y su nombre, con seis por página.
+   Filtra por **Todos**, **Siluetas**, **Botellas**, **Latas** u **Otros**, o usa **Anterior / Siguiente**.
+   Puedes elegir **Caja marcada (1271)**, **Silueta armada A/B (1583/1584)**,
+   **Silueta civil A/B (1585/1586)**, **Botella de vidrio A/B (1543/1544)**,
+   **Lata de bebida (2601)** o **Cono (1238)**.
+   **Atrás / ESC** vuelve al blanco que estabas editando. Al añadir uno nuevo, cancela la creación sin guardar.
 3. Elige **Blanco de tiro (disparar)** o **Blanco protegido (no disparar)**, independiente del modelo.
    Esto activa distribución fija al guardar. Luego puedes activar la aleatoria en Reglas.
 4. Se abre el editor visual sobre un objeto temporal, inicialmente delante del personaje.
@@ -104,6 +109,24 @@ seguirá activada hasta que la ocultes.
 
 El primer punto se puede marcar sin un inicio previo. Reubicar el único punto conserva el comportamiento
 anterior. Los puntos adicionales se validan respecto al campo y sus blancos.
+
+## Probar el selector y los objetos nuevos
+
+Después de aplicar esta entrega mediante un reinicio solicitado:
+
+1. Abre **Blancos > Añadir blanco**. Comprueba el panel oscuro, las tarjetas con nombres y las letras sencillas.
+2. En **Todos**, pasa a la segunda página y vuelve a la primera. Los botones de los extremos deben desactivarse.
+3. Revisa los filtros. Siluetas tiene cuatro objetos, Botellas dos, Latas uno y Otros dos.
+   Las tildes de **Atrás** y **Página** deben verse correctamente.
+4. Elige cada objeto nuevo, configura su comportamiento y colócalo con el editor.
+   Botellas y latas son pequeñas. Colócalas sobre una superficie visible y prueba primero a poca distancia.
+5. Edita el nombre de un blanco y entra en **Objeto**. Cambia de página o filtro y pulsa **Atrás / ESC**.
+   El nombre pendiente debe conservarse. **Descartar** conserva la configuración guardada.
+6. Dispara a las botellas, la lata y el cono durante una práctica. Comprueba un acierto por blanco de tiro
+   y un error si disparas durante un blanco protegido, incluso al aire.
+7. En **Vista previa**, dispara a esos objetos y comprueba que se repongan tras un impacto.
+   El renderizado, la colisión y la rotura nativa de cada modelo deben comprobarse en el cliente.
+8. Tras guardar y un reinicio solicitado, revisa modelos, posiciones, rotaciones y comportamientos.
 
 ## Cerrar el menú y continuar la configuración
 
@@ -281,9 +304,11 @@ Sonidos y acciones de rol se limitan a 10 metros del puesto en su mismo interior
   Prueba exposición 0.5 e intervalo 0.2, guarda y revisa esos valores después de un reinicio solicitado. Con dos jugadores confirma la privacidad del preview y que
   ambos pueden observar el blanco de una ronda real y el aviso de abandono. Solo el participante ve
   el contador y sus resultados. Reinicia y revisa nombres/modelos/rotaciones y armas seleccionadas.
-- **745 comprobaciones automáticas sin fallos**, ejecutadas en SA-MP 0.3.DL-R1 Linux con sscanf 2.13.1,
-  y compilación de módulo y gamemode completos. Los controles, renderizado, audio y el despacho real
-  de callbacks del cliente siguen siendo comprobaciones manuales. No se desplegó ni reinició el servidor jugable.
+- **1.228 comprobaciones automáticas sin fallos**, ejecutadas en SA-MP 0.3.DL-R1 Windows con sscanf 2.13.1,
+  y compilación de pruebas y gamemode completos. Incluyen filtros, páginas, cierre, limpieza,
+  guardado de modelos nuevos y rutas de puntuación. Los controles, renderizado, colisiones, audio
+  y el despacho real de callbacks del cliente siguen siendo comprobaciones manuales.
+  Este cambio no se desplegó al servidor jugable.
 
 ## Comprobar varias zonas
 

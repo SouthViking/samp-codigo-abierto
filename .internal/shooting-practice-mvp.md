@@ -3,9 +3,12 @@
 Updated: 2026-10-10. Multiple-zone administration, multiple starts per zone, independent zone sessions/editing,
 stable IDs, proximity hints, optional start pickups and v9 file persistence/migration are implemented. Existing model editing,
 private previews, mixed shoot/no-shoot scoring, permitted weapons, decimal timing and results remain.
-This increment passed isolated Windows SA-MP 0.3.DL-R1 tests and was deployed with an explicitly requested
-local server restart. Account/faction adapters, restricted access, SQL and recorded history
-are still future integrations, described in the data model linked below.
+The native object selector now uses ordinary-font cards, category filters and pagination. Two glass
+bottles, a beverage can and a traffic cone extend the catalogue to nine models. This increment compiles
+and passes isolated Windows SA-MP 0.3.DL-R1 tests. It has not been deployed to the playable server.
+The previous build with optional pickups and the compact report remains running after its explicitly
+requested restart. Account/faction adapters, restricted access, SQL and recorded history remain
+future integrations, described in the data model linked below.
 
 - Fork: https://github.com/SouthViking/samp-codigo-abierto
 - Branch: feat/shooting-practice-mvp
@@ -73,9 +76,10 @@ Each position appears once per round, one at a time. Faction/civilian ranges can
 Results can inform an instructor's assessment; they do not certify an entire FTP.
 
 Targets store optional name (32 characters), model, independent behavior, XYZ position, XYZ rotation,
-interior/world. Catalog: box 1271, armed silhouettes 1583/1584, civilian silhouettes 1585/1586.
-No custom downloads or new plugins. The box gets red DISPARAR / blue NO DISPARAR material;
-silhouettes retain native textures. Instructors should use distinguishable figures and explain
+interior/world. Catalogue: box 1271, armed silhouettes 1583/1584, civilian silhouettes 1585/1586,
+glass bottles 1543/1544, beverage can 2601 and traffic cone 1238.
+No custom downloads or new plugins. The box gets red DISPARAR / blue NO DISPARAR material.
+All other models retain their native textures. Instructors should use distinguishable figures and explain
 their criteria. Model and behavior are independent.
 
 Shoot-target impact: +1; expiry: omission. Any participant discharge during no-shoot, including
@@ -105,7 +109,8 @@ confirmed reset, rename, activation/deactivation and confirmed archive. Archivin
 from lists/usage but retains its ID/configuration in storage; there is no restore/purge UI this increment.
 Occupied zones cannot be edited, disabled, reset or archived. Other zones remain available.
 Failed saves add a retry row; the zone list exposes pending writes even after an archive.
-Existing easyDialog dispatch and mSelection cards are reused. Volver/Zonas returns to the registry.
+Configuration dialogs reuse easyDialog. The object selector is an owned PlayerTextDraw panel.
+Volver/Zonas returns to the registry.
 
 Iniciar práctica appears only when PracticeStartReady succeeds for this player: completed layout,
 alive/on-foot access, start proximity, same dimension, permitted held weapon, no participant or editor.
@@ -136,7 +141,14 @@ messages and target dimension. Moving to another post does not change an ongoing
 Objects remain public, with one active participant per zone. Different zones remain independent.
 Partial configurations can be saved. Readiness is checked before practicing.
 
-Creation chooses model and behavior, then opens native object editing. Existing targets offer
+Creation chooses model and behavior, then opens native object editing. The object selector has
+six cards per page, with names and native 3D previews, and filters Todos, Siluetas, Botellas, Latas,
+Otros. All text uses ordinary GTA font 1, without the old gothic header. Atrás or ESC returns to
+an existing draft, or cancels an unplaced new target. Filters and pages do not save changes.
+Only handles owned by the open panel can select a bound catalogue index. Each interaction rechecks
+draft ownership, zone revision, RCON, position and dimension. Partial allocation failure rolls back
+the panel. Selection ownership clears before native cancellation can trigger the ESC callback.
+The panel needs at most 38 player textdraws and retains the cursor across redraws. Existing targets offer
 name/model/behavior, move/rotate, duplicate, confirmed delete, then save as the last row.
 New drafts end with save after move/rotate. The behavior menu consistently uses Blanco protegido. Draft changes are applied only
 by Save or EDIT_RESPONSE_FINAL; cancel discards all pending fields. Duplicates fill a free slot without
@@ -392,7 +404,8 @@ future supervision grants stay separate from configuration authority.
 | sequence.inc | Frozen positions, pairs and randomization. |
 | editor.inc | Draft ownership, private preview, native editor lifecycle. |
 | start_setup.inc | Multiple start-point menus, capture, naming, relocation and deletion. |
-| setup.inc | Selected-zone dialogs, catalog, confirmations and revision guards. |
+| setup.inc | Selected-zone dialogs, confirmations and revision guards. |
+| catalogue.inc | Native object cards, category/page bindings, selection ownership and cleanup. |
 | zone_setup.inc | Administrative registry commands/lists/lifecycle and public proximity selection. |
 | session.inc | Per-zone sessions, player lookup, target lifecycle and scoring. |
 | presentation.inc | Materials, audio, countdown overlay, roleplay, help/results. |
@@ -402,7 +415,7 @@ future supervision grants stay separate from configuration authority.
 
 ## Validation and scope
 
-- 955 assertions, 0 failures on isolated Windows SA-MP 0.3.DL-R1 with sscanf 2.13.1, normal exit.
+- 1228 assertions, 0 failures on isolated Windows SA-MP 0.3.DL-R1 with sscanf 2.13.1, normal exit.
   Deterministic adapters simulate player/UI/streamer/audio. Pawn VM, parsers and file I/O are real.
   New start coverage includes CRUD, bounded/sparse lists, stale/revoked dialogs, common geometry,
   multiple private markers and cleanup, nearest-post selection, public objects, exclusive zone use,
@@ -414,15 +427,21 @@ future supervision grants stay separate from configuration authority.
   private entry hints with hysteresis, independent flags, v1-v8 migration and rejected v9 metadata.
   Tests live in tests/shooting_practice_discovery.inc, tests/shooting_practice_starts.inc,
   tests/shooting_practice_pause.inc and the existing test modules.
+  Catalogue coverage in tests/shooting_practice_catalogue.inc checks card/model/name bindings,
+  ordinary font IDs, native preview dimensions, filtering, page bounds, cursor ordering,
+  back/ESC cancellation re-entry, permission/revision/range loss and allocation rollback.
+  Expanded models round-trip through v9, preserve model/behavior pairs under randomization,
+  and use the existing public spawn and one-hit/air-shot scoring paths.
 - Full SARP.pwn and tests compile with Pawn 3.10.10, -;+ -(+ -d3 -E. Existing gamemode warning
   suppressions remain. Unix full compilation normalizes include separators in an ignored copy only.
   Spanish source uses Windows-1252; documents use UTF-8. Static dialog buffers avoid enlarging the
   gamemode's existing stack allowance.
-- The latest build, including close/resume, pickups and the new result format, was deployed through
-  scripts/local-server.ps1 after the user's explicit restart request. UDP status confirms 127.0.0.1:7777.
-  The saved layout's SHA256 was unchanged across this restart. Prior test/deployment evidence remains
-  in tests/README.md. Real mouse/dialog integration, visibility/collision, network
-  shots, sounds and live YSI/timer dispatch still need the client checks in the manual guide.
+- The previous build, including close/resume, pickups and the compact result format, was deployed
+  after the user's explicit restart request. The new object selector/catalogue was compiled to a
+  separate ignored AMX, without replacing the running server's binary or saved layout.
+  Deployment requires a later explicitly requested restart. Prior evidence remains in tests/README.md.
+  Actual mouse hit areas, GXT accents, model rendering/collisions/native breakage and real
+  easyDialog/YSI/timer dispatch still need the client checks in the manual guide.
 
 Pending: real faction/group restricted access, host identities, SQL backend, history policy,
 /evaluaciontiro and authorized supervisor queries/reviews. Their normalized draft is documented,
@@ -432,6 +451,10 @@ Later extensions: leaderboards, FTP certification, equipment administration, cus
 moving/simultaneous targets within a round, scoring rings and live scoring HUD.
 
 ## Engine references
+
+- [GTA object IDs](https://wiki.multitheftauto.com/wiki/IDE_List): catalogue model names/IDs.
+- [Native model previews](https://open.mp/docs/scripting/functions/PlayerTextDrawSetPreviewModel).
+- [Native cursor cancellation](https://open.mp/docs/scripting/functions/CancelSelectTextDraw): emits the ESC callback.
 
 - [Streamer 2.9.6 shot dispatch](https://github.com/samp-incognito/samp-streamer-plugin/blob/v2.9.6/src/callbacks.cpp):
   the dynamic-object callback can veto a reported shot. Owned repairs run after dispatch to avoid

@@ -27,10 +27,6 @@
 #define COLOR_HELP_1 (-1)
 #define COLOR_PURPLE (-1)
 #define TEST_PLAYERS (5)
-#define mS_DIALOG_BASE_X 75.0
-#define mS_DIALOG_BASE_Y 130.0
-#define mS_SPRITE_DIM_X 60.0
-#define mS_SPRITE_DIM_Y 70.0
 
 new TestNow, TestFailures, TestAssertions;
 new bool:TestConnected[TEST_PLAYERS], bool:TestAdmin[TEST_PLAYERS], bool:TestNPC[TEST_PLAYERS];
@@ -44,7 +40,12 @@ new TestResultPoints;
 new TestMessages[TEST_PLAYERS], TestPrivateMessages[TEST_PLAYERS], TestLastMessage[TEST_PLAYERS][144];
 new TestChat[TEST_PLAYERS][8192], TestLongestMessage, bool:TestResultColourWrong;
 new TestLastMessageColour[TEST_PLAYERS];
-new bool:TestTDAlive[256], bool:TestTDVisible[256], TestTDOwner[256], TestTDText[256][64], bool:TestTDFails;
+#define TEST_TEXTDRAWS (4096)
+new bool:TestTDAlive[TEST_TEXTDRAWS], bool:TestTDVisible[TEST_TEXTDRAWS], TestTDOwner[TEST_TEXTDRAWS], TestTDText[TEST_TEXTDRAWS][64], bool:TestTDFails;
+new TestTDFailAt, TestTDFonts[TEST_TEXTDRAWS], TestTDModels[TEST_TEXTDRAWS];
+new bool:TestTDSelectable[TEST_TEXTDRAWS], bool:TestCatalogue[TEST_PLAYERS], TestCancelSelections[TEST_PLAYERS];
+new Float:TestTDPosition[TEST_TEXTDRAWS][2], Float:TestTDTextSize[TEST_TEXTDRAWS][2];
+new bool:TestSelectionOrderWrong;
 new TestSounds[TEST_PLAYERS][128], TestSoundTimes[TEST_PLAYERS][128], TestSoundCount[TEST_PLAYERS];
 new TestMaterialColours[256], TestMaterialText[256][16], bool:TestMaterialFails;
 new TestStreamedObject, bool:TestCueBeforeReady;
@@ -57,7 +58,7 @@ new Float:TestCPPosition[256][3];
 new bool:TestLabels[256], TestNextLabel, TestLiveLabels, TestLabelOwner[256], TestLabelText[256][100];
 new TestLabelFailAt, bool:TestCPFails;
 new TestEditorObject[TEST_PLAYERS], TestEditorLock[TEST_PLAYERS], TestCancelEdits[TEST_PLAYERS];
-new bool:TestEditFails, bool:TestCatalogue[TEST_PLAYERS], TestTDCount[TEST_PLAYERS], TestNextTD;
+new bool:TestEditFails, TestTDCount[TEST_PLAYERS], TestNextTD;
 new TestDialogTitle[TEST_PLAYERS][80], TestDialogBody[TEST_PLAYERS][3072];
 new bool:TestSaveFails;
 new bool:TestPickups[1024], TestNextPickup, TestLivePickups, TestPickupFailAt;
@@ -125,14 +126,13 @@ stock TestEditObject(playerid, objectid) { TestEditorObject[playerid] = objectid
 stock TestCancelEdit(playerid) { TestEditorObject[playerid] = 0; TestCancelEdits[playerid]++; return 1; }
 stock TestSetPVar(playerid, const name[], value) { TestEditorLock[playerid] = value; return 1; }
 stock TestDeletePVar(playerid, const name[]) { TestEditorLock[playerid] = 0; return 1; }
-stock TestShowCatalogue(playerid, const items[], amount, const title[], extraid, const back_text[])
-{ TestCatalogue[playerid] = true; return 1; }
-stock TestHideCatalogue(playerid) { TestCatalogue[playerid] = false; return 1; }
 stock PlayerText:TestCreateTD(playerid, Float:x, Float:y, const text[])
 {
-    if (TestTDFails) return PlayerText:INVALID_TEXT_DRAW;
+    if (TestTDFails || (TestTDFailAt && TestNextTD + 1 == TestTDFailAt) || TestNextTD + 1 >= TEST_TEXTDRAWS) return PlayerText:INVALID_TEXT_DRAW;
     new id = ++TestNextTD; TestTDCount[playerid]++; TestTDAlive[id] = true;
     TestTDVisible[id] = false; TestTDOwner[id] = playerid;
+    TestTDSelectable[id] = false; TestTDFonts[id] = TestTDModels[id] = 0;
+    TestTDPosition[id][0] = x; TestTDPosition[id][1] = y;
     format(TestTDText[id], 64, "%s", text);
     return PlayerText:id;
 }
@@ -156,7 +156,33 @@ stock TestDisconnect(playerid)
 }
 stock TestTDSize(playerid, PlayerText:id, Float:x, Float:y) { return 1; }
 stock TestTDSet(playerid, PlayerText:id, value) { return 1; }
-stock TestTDShow(playerid, PlayerText:id) { TestTDVisible[_:id] = true; return 1; }
+stock TestTDShow(playerid, PlayerText:id)
+{
+    if (TestTDSelectable[_:id] && !TestCatalogue[playerid]) TestSelectionOrderWrong = true;
+    TestTDVisible[_:id] = true; return 1;
+}
+stock TestTDFont(playerid, PlayerText:id, font) { TestTDFonts[_:id] = font; return 1; }
+stock TestTDSelectability(playerid, PlayerText:id, value) { TestTDSelectable[_:id] = value != 0; return 1; }
+stock TestTDTextDimensions(playerid, PlayerText:id, Float:x, Float:y)
+{ TestTDTextSize[_:id][0] = x; TestTDTextSize[_:id][1] = y; return 1; }
+stock TestTDPreviewModel(playerid, PlayerText:id, modelid) { TestTDModels[_:id] = modelid; return 1; }
+stock TestTDPreviewRot(playerid, PlayerText:id, Float:x, Float:y, Float:z, Float:zoom) { return 1; }
+stock TestSelectTextDraw(playerid, colour)
+{
+    for (new id = 1; id <= TestNextTD; id++)
+        if (TestTDAlive[id] && TestTDOwner[id] == playerid && TestTDSelectable[id] && TestTDVisible[id])
+            TestSelectionOrderWrong = true;
+    TestCatalogue[playerid] = true;
+    return 1;
+}
+stock TestCancelSelectTextDraw(playerid)
+{
+    TestCatalogue[playerid] = false;
+    TestCancelSelections[playerid]++;
+    // Reproduce the native cancellation callback, including synchronous re-entry.
+    PracticeHandleCatalogueEscape(playerid);
+    return 1;
+}
 
 stock TestSendMessage(playerid, color, const message[])
 {
@@ -279,17 +305,26 @@ stock TestRandom(maximum)
 #define CancelEdit TestCancelEdit
 #define SetPVarInt TestSetPVar
 #define DeletePVar TestDeletePVar
-#define ShowModelSelectionMenuEx TestShowCatalogue
-#define HideModelSelectionMenu TestHideCatalogue
 #define CreatePlayerTextDraw TestCreateTD
 #define PlayerTextDrawDestroy TestDestroyTD
 #define PlayerTextDrawLetterSize TestTDSize
-#define PlayerTextDrawFont TestTDSet
+#define PlayerTextDrawFont TestTDFont
 #define PlayerTextDrawColor TestTDSet
 #define PlayerTextDrawSetOutline TestTDSet
 #define PlayerTextDrawShow TestTDShow
 #define PlayerTextDrawAlignment TestTDSet
 #define PlayerTextDrawSetString TestTDString
+#define PlayerTextDrawTextSize TestTDTextDimensions
+#define PlayerTextDrawSetShadow TestTDSet
+#define PlayerTextDrawBackgroundColor TestTDSet
+#define PlayerTextDrawSetProportional TestTDSet
+#define PlayerTextDrawSetSelectable TestTDSelectability
+#define PlayerTextDrawUseBox TestTDSet
+#define PlayerTextDrawBoxColor TestTDSet
+#define PlayerTextDrawSetPreviewModel TestTDPreviewModel
+#define PlayerTextDrawSetPreviewRot TestTDPreviewRot
+#define SelectTextDraw TestSelectTextDraw
+#define CancelSelectTextDraw TestCancelSelectTextDraw
 
 #include "../gamemodes/features/shooting_practice/config.inc"
 #include "../gamemodes/features/shooting_practice/registry.inc"
@@ -307,6 +342,7 @@ stock TestRandom(maximum)
 #include "../gamemodes/features/shooting_practice/storage.inc"
 #undef fopen
 #include "../gamemodes/features/shooting_practice/setup.inc"
+#include "../gamemodes/features/shooting_practice/catalogue.inc"
 #include "../gamemodes/features/shooting_practice/start_setup.inc"
 #include "../gamemodes/features/shooting_practice/zone_setup.inc"
 #include "../gamemodes/features/shooting_practice/discovery.inc"
@@ -367,6 +403,7 @@ stock ResetTest(targets = 3)
         noTextdraws = noTextdraws && !TestTDCount[playerid];
     }
     Check(noTextdraws, "cleanup releases every owned textdraw");
+    Check(!TestSelectionOrderWrong, "selection is configured before selectable textdraws are shown");
     PracticeResetDiscovery();
     Check(TestLiveObjects == 0 && !TestLiveCP && !TestLiveLabels && !TestLivePickups, "cleanup leaves no objects, checkpoints or labels");
     PracticeInitializeRegistry();
@@ -404,6 +441,7 @@ stock ResetTest(targets = 3)
         TestWorld[playerid] = 0; TestInterior[playerid] = 0; TestHealth[playerid] = 100.0;
         TestPosition[playerid][0] = TestPosition[playerid][1] = TestPosition[playerid][2] = 0.0;
         TestMessages[playerid] = TestPrivateMessages[playerid] = TestSoundCount[playerid] = 0;
+        TestCatalogue[playerid] = false; TestCancelSelections[playerid] = 0;
         TestLastMessage[playerid][0] = TestChat[playerid][0] = EOS;
         playerEditingObjectID[playerid] = -1; TestCancelEdits[playerid] = 0;
     }
@@ -413,7 +451,8 @@ stock ResetTest(targets = 3)
     TestResultPoints = 0;
     TestMaterialFails = false; TestCueBeforeReady = false; TestStreamedObject = 0;
     TestRandomSeed = 42; TestRandomCalls = 0;
-    TestNextCP = TestNextLabel = TestNextTD = TestLabelFailAt = 0;
+    TestNextCP = TestNextLabel = TestNextTD = TestLabelFailAt = TestTDFailAt = 0;
+    TestSelectionOrderWrong = false;
     TestNextPickup = TestPickupFailAt = 0;
     TestCPFails = TestEditFails = TestSaveFails = TestTDFails = false;
     TestLongestMessage = 0; TestResultColourWrong = false;
@@ -689,6 +728,7 @@ stock TestRandomSequences()
 }
 
 #include "shooting_practice_ui.inc"
+#include "shooting_practice_catalogue.inc"
 #include "shooting_practice_polish.inc"
 
 stock TestStorageMigration()
@@ -877,6 +917,8 @@ public OnGameModeInit()
     TestConfigurationPause();
     TestPracticeDiscovery();
     TestIndicatorStorage();
+    TestModernCatalogue();
+    TestExpandedTargetModels();
     ResetTest();
     PracticeCleanup(0);
     printf("[Practice tests] %d assertions, %d failures", TestAssertions, TestFailures);

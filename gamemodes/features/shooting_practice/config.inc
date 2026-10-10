@@ -67,13 +67,18 @@ new const PracticeDefaultRules[E_PRACTICE_RULE] = {PRACTICE_WEAPON_DEFAULT, 1, 3
 new PracticeRevision[PRACTICE_MAX_ZONES];
 new bool:PracticeSavePending[PRACTICE_MAX_ZONES];
 
-enum E_PRACTICE_MODEL { PracticeModelID, PracticeModelName[24] }
+enum E_PRACTICE_CATEGORY { SP_CATEGORY_ALL, SP_CATEGORY_SILHOUETTES, SP_CATEGORY_BOTTLES, SP_CATEGORY_CANS, SP_CATEGORY_OTHER }
+enum E_PRACTICE_MODEL { PracticeModelID, PracticeModelName[24], E_PRACTICE_CATEGORY:PracticeModelCategory }
 new const PracticeModels[][E_PRACTICE_MODEL] = {
-    {1271, "Caja marcada"},
-    {1583, "Silueta armada A"},
-    {1584, "Silueta armada B"},
-    {1585, "Silueta civil A"},
-    {1586, "Silueta civil B"}
+    {1271, "Caja marcada", SP_CATEGORY_OTHER},
+    {1583, "Silueta armada A", SP_CATEGORY_SILHOUETTES},
+    {1584, "Silueta armada B", SP_CATEGORY_SILHOUETTES},
+    {1585, "Silueta civil A", SP_CATEGORY_SILHOUETTES},
+    {1586, "Silueta civil B", SP_CATEGORY_SILHOUETTES},
+    {1543, "Botella de vidrio A", SP_CATEGORY_BOTTLES},
+    {1544, "Botella de vidrio B", SP_CATEGORY_BOTTLES},
+    {2601, "Lata de bebida", SP_CATEGORY_CANS},
+    {1238, "Cono", SP_CATEGORY_OTHER}
 };
 
 new const PracticeWeaponNames[][32] = {

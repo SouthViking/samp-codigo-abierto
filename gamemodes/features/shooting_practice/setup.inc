@@ -3,7 +3,6 @@
 #endif
 #define SP_SETUP_INCLUDED
 
-#define PRACTICE_CATALOGUE_ID (41510)
 enum {
     SP_MENU_NONE, SP_MENU_MAIN, SP_MENU_TARGETS, SP_MENU_DRAFT,
     SP_MENU_NAME, SP_MENU_BEHAVIOUR, SP_MENU_RULES, SP_MENU_NUMBER, SP_MENU_WEAPON,
@@ -28,8 +27,6 @@ new PracticeSelectedStart[MAX_PLAYERS] = {-1, ...};
 new PracticeStartRows[MAX_PLAYERS][PRACTICE_MAX_STARTS + 2], PracticeStartRowCount[MAX_PLAYERS];
 new PracticeMenuRows[MAX_PLAYERS][PRACTICE_MAX_TARGETS + 2], PracticeMenuRowCount[MAX_PLAYERS];
 new E_PRACTICE_RULE:PracticeRuleField[MAX_PLAYERS];
-new bool:PracticeCatalogueOpen[MAX_PLAYERS];
-new PlayerText:PracticeCatalogueLabels[MAX_PLAYERS][sizeof(PracticeModels)];
 
 stock PracticeDialog(playerid, page, style, const title[], const body[], const accept[] = "Seleccionar", const cancel[] = "Volver")
 {
@@ -40,20 +37,6 @@ stock PracticeDialog(playerid, page, style, const title[], const body[], const a
     PracticeMenuRevision[playerid] = PracticeSelectedZoneValid(playerid) ? PracticeRevision[PracticeSelectedZone[playerid]] : -1;
     PracticeZoneListRevision[playerid] = PracticeRegistryRevision;
     return Dialog_Show(playerid, SP_Menu, style, title, body, accept, cancel);
-}
-
-stock PracticeHideCatalogue(playerid, bool:closeNative = true)
-{
-    if (!PracticeCatalogueOpen[playerid]) return 1;
-    PracticeCatalogueOpen[playerid] = false;
-    if (closeNative) HideModelSelectionMenu(playerid);
-    for (new i = 0; i < sizeof(PracticeModels); i++)
-    {
-        if (PracticeCatalogueLabels[playerid][i] != PlayerText:INVALID_TEXT_DRAW)
-            PlayerTextDrawDestroy(playerid, PracticeCatalogueLabels[playerid][i]);
-        PracticeCatalogueLabels[playerid][i] = PlayerText:INVALID_TEXT_DRAW;
-    }
-    return 1;
 }
 
 stock PracticeResetUI(playerid)
@@ -215,58 +198,10 @@ stock PracticeShowDraftMenu(playerid)
     return PracticeDialog(playerid, SP_MENU_DRAFT, DIALOG_STYLE_TABLIST_HEADERS, title, body, "Seleccionar", "Descartar");
 }
 
-stock PracticeShowCatalogue(playerid)
-{
-    if (!PracticeDraftCurrent(playerid)) return 0;
-    PracticeEnsureSetupView(playerid);
-    PracticeHideCatalogue(playerid);
-    PracticeMenuPage[playerid] = SP_MENU_NONE;
-    new models[sizeof(PracticeModels)];
-    for (new i = 0; i < sizeof(PracticeModels); i++)
-    {
-        models[i] = PracticeModels[i][PracticeModelID];
-        PracticeCatalogueLabels[playerid][i] = PlayerText:INVALID_TEXT_DRAW;
-    }
-    // GTA textdraw font: GXT 0x98 (152) renders á; dialogs use Windows-1252.
-    if (!ShowModelSelectionMenuEx(playerid, models, sizeof(models), "Seleccionar objeto", PRACTICE_CATALOGUE_ID, .back_text = "Atr\152s"))
-        return PracticeShowDraftMenu(playerid);
-    PracticeCatalogueOpen[playerid] = true;
-    // Use the existing mSelection grid, adding names beneath its first row.
-    for (new i = 0; i < sizeof(PracticeModels); i++)
-    {
-        new Float:x = mS_DIALOG_BASE_X + 25.0 + float(i) * (mS_SPRITE_DIM_X + 1.0);
-        new Float:y = mS_DIALOG_BASE_Y - mS_SPRITE_DIM_Y * 0.33 + 2.0 * mS_SPRITE_DIM_Y + 3.0;
-        PracticeCatalogueLabels[playerid][i] = CreatePlayerTextDraw(playerid, x, y, PracticeModels[i][PracticeModelName]);
-        if (PracticeCatalogueLabels[playerid][i] == PlayerText:INVALID_TEXT_DRAW) continue;
-        PlayerTextDrawLetterSize(playerid, PracticeCatalogueLabels[playerid][i], 0.13, 0.8);
-        PlayerTextDrawFont(playerid, PracticeCatalogueLabels[playerid][i], 1);
-        PlayerTextDrawColor(playerid, PracticeCatalogueLabels[playerid][i], -1);
-        PlayerTextDrawSetOutline(playerid, PracticeCatalogueLabels[playerid][i], 1);
-        PlayerTextDrawShow(playerid, PracticeCatalogueLabels[playerid][i]);
-    }
-    return 1;
-}
-
 stock PracticeShowBehaviour(playerid)
 {
     return PracticeDialog(playerid, SP_MENU_BEHAVIOUR, DIALOG_STYLE_LIST, "Tipo de blanco",
         "Blanco de tiro (disparar)\nBlanco protegido (no disparar)");
-}
-
-stock PracticeHandleModelSelection(playerid, response, modelid)
-{
-    if (!PracticeCatalogueOpen[playerid]) return 0;
-    PracticeHideCatalogue(playerid, false); // mSelection already closed its own widgets.
-    if (!PracticeDraftCurrent(playerid)) { PracticeResetUI(playerid); return 1; }
-    if (!response)
-    {
-        if (PracticeDraftWizard[playerid]) { PracticeDiscardDraft(playerid); return PracticeShowTargets(playerid); }
-        return PracticeShowDraftMenu(playerid);
-    }
-    if (PracticeModelIndex(modelid) < 0) return PracticeShowCatalogue(playerid);
-    PracticeDraft[playerid][PracticePointModel] = modelid;
-    if (PracticeDraftWizard[playerid]) return PracticeShowBehaviour(playerid);
-    return PracticeShowDraftMenu(playerid);
 }
 
 stock PracticeShowEditError(playerid)
