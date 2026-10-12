@@ -16,6 +16,7 @@ stock TestPracticeDiscovery()
         && TestPickupPosition[secondPickup][1] == 6.0 && TestPickupWorld[firstPickup] == 0
         && TestPickupInterior[firstPickup] == 0 && !TestLiveLabels && !TestLiveObjects,
         "standalone pistol indicators use decorative type and the post dimension without labels");
+    Check(TestPickupPosition[firstPickup][2] == -0.65, "pickup is lowered one meter relative to the former offset");
     PracticeSynchronizeIndicators(0);
     Check(TestNextPickup == 2 && PracticeStartPickups[0][0] == firstPickup, "unchanged pickups keep their native handles");
     PracticePoints[0][second][PracticePointY] = 7.0; PracticeConfigurationChanged(0);

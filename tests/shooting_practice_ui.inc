@@ -1,7 +1,26 @@
 // Exercise production dialog dispatch and editor callbacks with deterministic
 // player/streamer adapters. Rendering and mouse controls remain a client check.
-stock MenuChoose(row, playerid = 0) { return PracticeHandleMenu(playerid, true, row, ""); }
-stock MenuBack(playerid = 0) { return PracticeHandleMenu(playerid, false, -1, ""); }
+stock AdvanceCatalogueOpening(playerid)
+{
+    if (PracticeCataloguePending[playerid])
+    {
+        TestNow += PRACTICE_CATALOGUE_OPEN_DELAY;
+        PracticeCatalogueTick(TestNow);
+    }
+    return 1;
+}
+stock MenuChoose(row, playerid = 0)
+{
+    new result = PracticeHandleMenu(playerid, true, row, "");
+    AdvanceCatalogueOpening(playerid);
+    return result;
+}
+stock MenuBack(playerid = 0)
+{
+    new result = PracticeHandleMenu(playerid, false, -1, "");
+    AdvanceCatalogueOpening(playerid);
+    return result;
+}
 stock bool:MainHasAction(action, playerid = 0)
 {
     for (new row = 0; row < PracticeMainRowCount[playerid]; row++)

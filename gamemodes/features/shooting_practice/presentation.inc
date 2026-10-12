@@ -125,12 +125,13 @@ stock PracticeApplyTargetAppearance(STREAMER_TAG_OBJECT:objectid, bool:noShoot, 
 stock PracticeReportResult(playerid, bool:completed, const result[E_PRACTICE_SESSION], const reason[])
 {
     new message[144];
-    PracticeSendResultLine(playerid, PRACTICE_SECTION_COLOUR, "---------- CAMPO DE TIRO ----------");
+    PracticeSendResultLine(playerid, PRACTICE_SECTION_COLOUR, PRACTICE_RESULT_BORDER);
+    PracticeSendResultLine(playerid, PRACTICE_SECTION_COLOUR, "CAMPO DE TIRO");
     if (!completed)
     {
         format(message, sizeof(message), "Incompleta: %s", reason);
         PracticeSendResultLine(playerid, COLOR_WHITE, message);
-        return PracticeSendResultLine(playerid, PRACTICE_SECTION_COLOUR, "-----------------------------------");
+        return PracticeSendResultLine(playerid, PRACTICE_SECTION_COLOUR, PRACTICE_RESULT_BORDER);
     }
     format(message, sizeof(message), "Puntos mínimos: %d%sErrores máximos: %d",
         result[PracticeRequiredPoints], PRACTICE_CHAT_SEPARATOR, result[PracticeAllowedErrors]);
@@ -152,7 +153,7 @@ stock PracticeReportResult(playerid, bool:completed, const result[E_PRACTICE_SES
         PracticeResultPoints(result), PRACTICE_CHAT_SEPARATOR, (passed ? COLOR_LIGHTGREEN : COLOR_RED) >>> 8,
         passed ? ("Aprobado") : ("Reprobado"));
     PracticeSendResultLine(playerid, COLOR_WHITE, message);
-    return PracticeSendResultLine(playerid, PRACTICE_SECTION_COLOUR, "-----------------------------------");
+    return PracticeSendResultLine(playerid, PRACTICE_SECTION_COLOUR, PRACTICE_RESULT_BORDER);
 }
 
 stock PracticeShowAllowedWeapons(zone, playerid)

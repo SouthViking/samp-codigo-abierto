@@ -39,13 +39,16 @@ new TestResultIgnored, TestResultErrors, TestResultShootTotal, TestResultNoShoot
 new TestResultPoints;
 new TestMessages[TEST_PLAYERS], TestPrivateMessages[TEST_PLAYERS], TestLastMessage[TEST_PLAYERS][144];
 new TestChat[TEST_PLAYERS][8192], TestLongestMessage, bool:TestResultColourWrong;
+new TestReportLines[TEST_PLAYERS][8][144];
 new TestLastMessageColour[TEST_PLAYERS];
 #define TEST_TEXTDRAWS (4096)
 new bool:TestTDAlive[TEST_TEXTDRAWS], bool:TestTDVisible[TEST_TEXTDRAWS], TestTDOwner[TEST_TEXTDRAWS], TestTDText[TEST_TEXTDRAWS][64], bool:TestTDFails;
 new TestTDFailAt, TestTDFonts[TEST_TEXTDRAWS], TestTDModels[TEST_TEXTDRAWS];
 new bool:TestTDSelectable[TEST_TEXTDRAWS], bool:TestCatalogue[TEST_PLAYERS], TestCancelSelections[TEST_PLAYERS];
 new Float:TestTDPosition[TEST_TEXTDRAWS][2], Float:TestTDTextSize[TEST_TEXTDRAWS][2];
-new bool:TestSelectionOrderWrong;
+new bool:TestSelectionOrderWrong, bool:TestDeferredSelection;
+new TestSelectionEchoes[TEST_PLAYERS], TestTDAlignment[TEST_TEXTDRAWS];
+new Float:TestTDLetterSize[TEST_TEXTDRAWS][2];
 new TestSounds[TEST_PLAYERS][128], TestSoundTimes[TEST_PLAYERS][128], TestSoundCount[TEST_PLAYERS];
 new TestMaterialColours[256], TestMaterialText[256][16], bool:TestMaterialFails;
 new TestStreamedObject, bool:TestCueBeforeReady;
@@ -132,6 +135,7 @@ stock PlayerText:TestCreateTD(playerid, Float:x, Float:y, const text[])
     new id = ++TestNextTD; TestTDCount[playerid]++; TestTDAlive[id] = true;
     TestTDVisible[id] = false; TestTDOwner[id] = playerid;
     TestTDSelectable[id] = false; TestTDFonts[id] = TestTDModels[id] = 0;
+    TestTDAlignment[id] = 1;
     TestTDPosition[id][0] = x; TestTDPosition[id][1] = y;
     format(TestTDText[id], 64, "%s", text);
     return PlayerText:id;
@@ -154,7 +158,10 @@ stock TestDisconnect(playerid)
     TestConnected[playerid] = false;
     return 1;
 }
-stock TestTDSize(playerid, PlayerText:id, Float:x, Float:y) { return 1; }
+stock TestTDSize(playerid, PlayerText:id, Float:x, Float:y)
+{ TestTDLetterSize[_:id][0] = x; TestTDLetterSize[_:id][1] = y; return 1; }
+stock TestTDAlign(playerid, PlayerText:id, alignment)
+{ TestTDAlignment[_:id] = alignment; return 1; }
 stock TestTDSet(playerid, PlayerText:id, value) { return 1; }
 stock TestTDShow(playerid, PlayerText:id)
 {
@@ -179,9 +186,17 @@ stock TestCancelSelectTextDraw(playerid)
 {
     TestCatalogue[playerid] = false;
     TestCancelSelections[playerid]++;
-    // Reproduce the native cancellation callback, including synchronous re-entry.
-    PracticeHandleCatalogueEscape(playerid);
+    // Support both immediate and delayed native cancellation acknowledgements.
+    if (TestDeferredSelection) TestSelectionEchoes[playerid]++;
+    else PracticeHandleCatalogueEscape(playerid);
     return 1;
+}
+
+stock TestDeliverSelectionEcho(playerid)
+{
+    if (!TestSelectionEchoes[playerid]) return 0;
+    TestSelectionEchoes[playerid]--;
+    return PracticeHandleCatalogueEscape(playerid);
 }
 
 stock TestSendMessage(playerid, color, const message[])
@@ -312,7 +327,7 @@ stock TestRandom(maximum)
 #define PlayerTextDrawColor TestTDSet
 #define PlayerTextDrawSetOutline TestTDSet
 #define PlayerTextDrawShow TestTDShow
-#define PlayerTextDrawAlignment TestTDSet
+#define PlayerTextDrawAlignment TestTDAlign
 #define PlayerTextDrawSetString TestTDString
 #define PlayerTextDrawTextSize TestTDTextDimensions
 #define PlayerTextDrawSetShadow TestTDSet
@@ -349,8 +364,10 @@ stock TestRandom(maximum)
 
 stock TestSendResultMessage(playerid, color, const message[])
 {
+    if (TestPrivateMessages[playerid] < 8)
+        format(TestReportLines[playerid][TestPrivateMessages[playerid]], 144, "%s", message);
     TestPrivateMessages[playerid]++;
-    new bool:divider = strfind(message, "----------") == 0;
+    new bool:divider = strfind(message, "----------") == 0 || !strcmp(message, "CAMPO DE TIRO");
     if (color != (divider ? PRACTICE_SECTION_COLOUR : COLOR_WHITE)) TestResultColourWrong = true;
     return TestSendMessage(playerid, color, message);
 }
@@ -442,6 +459,7 @@ stock ResetTest(targets = 3)
         TestPosition[playerid][0] = TestPosition[playerid][1] = TestPosition[playerid][2] = 0.0;
         TestMessages[playerid] = TestPrivateMessages[playerid] = TestSoundCount[playerid] = 0;
         TestCatalogue[playerid] = false; TestCancelSelections[playerid] = 0;
+        TestSelectionEchoes[playerid] = PracticeCatalogueCancelEchoes[playerid] = 0;
         TestLastMessage[playerid][0] = TestChat[playerid][0] = EOS;
         playerEditingObjectID[playerid] = -1; TestCancelEdits[playerid] = 0;
     }
@@ -452,7 +470,7 @@ stock ResetTest(targets = 3)
     TestMaterialFails = false; TestCueBeforeReady = false; TestStreamedObject = 0;
     TestRandomSeed = 42; TestRandomCalls = 0;
     TestNextCP = TestNextLabel = TestNextTD = TestLabelFailAt = TestTDFailAt = 0;
-    TestSelectionOrderWrong = false;
+    TestSelectionOrderWrong = TestDeferredSelection = false;
     TestNextPickup = TestPickupFailAt = 0;
     TestCPFails = TestEditFails = TestSaveFails = TestTDFails = false;
     TestLongestMessage = 0; TestResultColourWrong = false;
@@ -567,7 +585,7 @@ stock TestPresentation()
     Check(TestSoundCount[0] == 5 && TestSounds[0][4] == PRACTICE_SOUND_TARGET, "each later target has one appearance cue");
     TestCommand_practica(0, "cancelar");
     Check(TestSoundCount[0] == 6 && TestSounds[0][5] == PRACTICE_SOUND_END, "cancellation closes with a distinct cue");
-    Check(TestPrivateMessages[0] == 3 && !TestPrivateMessages[1] && TestMessages[1] == 2, "only participant receives interruption reason");
+    Check(TestPrivateMessages[0] == 4 && !TestPrivateMessages[1] && TestMessages[1] == 2, "only participant receives interruption reason");
     TestNow += 60000; PracticeTick(0, TestNow); PracticeEnd(0, false, "repeat");
     Check(TestSoundCount[0] == 6 && TestLiveObjects == 0, "no stale beeps or duplicate closure after cancellation");
     PracticeStart(0, 0);
@@ -578,8 +596,8 @@ stock TestPresentation()
     Check(TestSoundCount[0] == 6 && TestSounds[0][4] == PRACTICE_SOUND_COUNTDOWN
         && TestSounds[0][5] == PRACTICE_SOUND_TARGET, "countdown respects configured duration");
     Shoot(true);
-    Check(TestMessages[0] == 9 && TestPrivateMessages[0] == 7 && TestMessages[1] == 2,
-        "normal round has start/end roleplay plus seven private result lines");
+    Check(TestMessages[0] == 10 && TestPrivateMessages[0] == 8 && TestMessages[1] == 2,
+        "normal round has start/end roleplay plus eight private result lines");
     Check(strfind(TestChat[0], "Veredicto: {9EC73D}Aprobado{FFFFFF}", true) != -1
         && strfind(TestChat[0], "Precisión: 100.0%") != -1 && TestLastMessageColour[0] == PRACTICE_SECTION_COLOUR,
         "only approved word is green, label and trailing score are white, accuracy has a percent sign");
@@ -918,6 +936,8 @@ public OnGameModeInit()
     TestPracticeDiscovery();
     TestIndicatorStorage();
     TestModernCatalogue();
+    TestCatalogueTransitions();
+    TestMatchingReportBorders();
     TestExpandedTargetModels();
     ResetTest();
     PracticeCleanup(0);

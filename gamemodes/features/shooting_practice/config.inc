@@ -13,9 +13,11 @@
 #define PRACTICE_ACTIVE_RADIUS (3.0)
 #define PRACTICE_START_PICKUP_MODEL (348)
 #define PRACTICE_START_PICKUP_TYPE (1)
-#define PRACTICE_START_PICKUP_Z (0.35)
+// Stored starts use the character origin. Native weapon pickups also float/bob.
+#define PRACTICE_START_PICKUP_Z (-0.65)
 #define PRACTICE_SECTION_COLOUR (0xA8C4D9FF)
 #define PRACTICE_CHAT_SEPARATOR " {A8C4D9}|{FFFFFF} "
+#define PRACTICE_RESULT_BORDER "----------------------------------------------------------------------------------------------"
 #define PRACTICE_MAX_DISTANCE (100.0)
 // Legacy layouts keep the marked box; each target can now select its own model.
 #define PRACTICE_TARGET_MODEL (1271)

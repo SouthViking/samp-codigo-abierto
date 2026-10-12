@@ -1,8 +1,9 @@
 # Shooting practice regression tests
 
-Current verification: 2026-10-10. The native object selector and expanded catalogue were built and tested
-in isolated Windows SA-MP 0.3.DL-R1. The playable server retains the previous pickup/report build
-and its saved layout. The new catalogue has not been deployed or restarted into that server.
+Current status: 2026-10-11. The current build includes the latest layout, opening, pickup height
+and report border corrections. Automated verification on 2026-10-10 passed 1261 assertions.
+The complete gamemode was compiled and started locally on 2026-10-11 on explicit request,
+and the user accepted the MVP and requested development closure.
 
 The suite includes production configuration, registry, storage, sequence, session, presentation, editor and
 dialog code. shooting_practice_ui.inc exercises configuration flows; shooting_practice_refinements.inc
@@ -21,6 +22,17 @@ dialog rendering, model cards and streamer operations use deterministic adapters
 Pawn execution, format, sscanf 2.13.1 and file I/O are real. Results are captured before the actual
 player-summary formatter runs.
 
+## MVP closure and local deployment: 2026-10-11
+
+- The user accepted the current feature and closed this development iteration.
+- Startup compiled the current SARP.pwn with Pawn 3.10.10 and confirmed 127.0.0.1:7777.
+- Seven plugins loaded with no startup load/runtime errors reported.
+- Saved configuration SHA256 before and after startup:
+  D6631E7218B439C50C39B51263FF453BBD25B3A5FD13C6308886D78E41BF6EC2.
+- Last isolated test log: .local-server/practice-tests/4f55e2059f25425cb39b1fd00aeb3040/server_log.txt.
+- The test harness remains distinct from real client rendering/collision/audio checks.
+  No new automatic server restarts are authorized by closure.
+
 ## Run on Windows
 
 From the repository root, after the local server dependencies have been prepared:
@@ -37,7 +49,28 @@ positions, configuration, AMX and logs are not overwritten.
 The tests intentionally overwrite their own scriptfiles/shooting_practice.cfg, .tmp and .bak.
 Never run the test AMX in a live/playable server directory.
 
-## Recorded verification: 2026-10-10 — object catalogue
+## Recorded verification: 2026-10-10 — visual and opening corrections
+
+**1261 assertions, 0 failures** on isolated Windows SA-MP 0.3.DL-R1, normal process exit.
+Tests and full SARP.pwn compile with Pawn 3.10.10 and -;+ -(+ -d3 -E.
+The playable runtime remains unchanged.
+
+New coverage:
+
+- Font-4 rectangles cover the whole panel, cards and buttons with explicit dimensions.
+- Model previews and padded ordinary-font captions stay inside cards. Button labels are centered
+  and visual only, with the entire sprite rectangle serving as their click area.
+- One dialog response queues one panel opening on the shared pulse after 150 ms.
+- Pending opens reject changed revisions, revoked RCON or cleared UI before allocating.
+- Delayed CancelSelectTextDraw acknowledgements cannot close a newly opened panel. Real ESC still works.
+- Pickup creation uses the lowered offset of -0.65 instead of 0.35.
+- Full and interrupted reports have identical 94-dash opening/closing separators and a separate title.
+- All earlier model, scoring, storage, geometry and lifecycle regressions remain covered.
+
+Native arguments and logical callbacks are simulated. GTA rendering, actual mouse hit areas and
+pickup bobbing remain client checks after an explicitly requested restart.
+
+## Previous verification: 2026-10-10 — object catalogue
 
 **1228 assertions, 0 failures** on isolated Windows SA-MP 0.3.DL-R1, normal process exit.
 Test log: .local-server/practice-tests/14e3549889c94a79adf881d45670b776/server_log.txt.

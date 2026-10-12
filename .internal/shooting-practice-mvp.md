@@ -1,14 +1,15 @@
 # Shooting Practice MVP - Implementation Handoff
 
-Updated: 2026-10-10. Multiple-zone administration, multiple starts per zone, independent zone sessions/editing,
+Updated: 2026-10-11. Multiple-zone administration, multiple starts per zone, independent zone sessions/editing,
 stable IDs, proximity hints, optional start pickups and v9 file persistence/migration are implemented. Existing model editing,
 private previews, mixed shoot/no-shoot scoring, permitted weapons, decimal timing and results remain.
 The native object selector now uses ordinary-font cards, category filters and pagination. Two glass
-bottles, a beverage can and a traffic cone extend the catalogue to nine models. This increment compiles
-and passes isolated Windows SA-MP 0.3.DL-R1 tests. It has not been deployed to the playable server.
-The previous build with optional pickups and the compact report remains running after its explicitly
-requested restart. Account/faction adapters, restricted access, SQL and recorded history remain
-future integrations, described in the data model linked below.
+bottles, a beverage can and a traffic cone extend the catalogue to nine models. The initial catalogue
+was deployed through an explicitly requested restart. The latest pickup/report/layout and opening
+corrections compile and pass isolated Windows SA-MP 0.3.DL-R1 tests. They were applied to the local
+server on 2026-10-11 after the user's explicit start request. The user accepted the current MVP
+and closed this development iteration. Account/faction adapters, restricted access, SQL and recorded
+history remain future integrations, described in the data model linked below.
 
 - Fork: https://github.com/SouthViking/samp-codigo-abierto
 - Branch: feat/shooting-practice-mvp
@@ -148,7 +149,13 @@ an existing draft, or cancels an unplaced new target. Filters and pages do not s
 Only handles owned by the open panel can select a bound catalogue index. Each interaction rechecks
 draft ownership, zone revision, RCON, position and dimension. Partial allocation failure rolls back
 the panel. Selection ownership clears before native cancellation can trigger the ESC callback.
-The panel needs at most 38 player textdraws and retains the cursor across redraws. Existing targets offer
+The panel needs at most 38 player textdraws and retains the cursor across redraws.
+Backgrounds and click areas use font-4 LD_SPAC:white rectangles with explicit sizes. Font-1 captions
+are visual only, centered with padding inside the card/button. Hover uses dark slate for contrast.
+Opening is queued for 150 ms on the existing 50 ms pulse so the native dialog closes first.
+Pending work rechecks the draft and is cancelled by UI cleanup. Cancellation acknowledgements are
+tracked before CancelSelectTextDraw, including when delivered after another panel opens.
+Connection/disconnection clears acknowledgements for reused player IDs. Existing targets offer
 name/model/behavior, move/rotate, duplicate, confirmed delete, then save as the last row.
 New drafts end with save after move/rotate. The behavior menu consistently uses Blanco protegido. Draft changes are applied only
 by Save or EDIT_RESPONSE_FINAL; cancel discards all pending fields. Duplicates fill a free slot without
@@ -259,8 +266,9 @@ No teleport/freeze.
 One neutral preparation action uses the existing roleplay name. One environmental /do-style line
 announces closure. Leaving the radius/dimension replaces the generic closure with
 "* Nombre Apellido abandona el puesto de tiro." using the participant's roleplay name, once.
-Only the participant receives the final result/reason. Completed results use seven chat lines:
-a CAMPO DE TIRO header, five unindented rows pairing fields, and a closing divider. Title, dividers
+Only the participant receives the final result/reason. Completed results use eight chat lines:
+an opening divider, CAMPO DE TIRO title, five unindented rows pairing fields, and a closing divider.
+The opening/closing dividers share the same 94-dash string so their lengths cannot drift. Title, dividers
 and inline pipe separators use soft blue #A8C4D9. Data and labels stay white, with only Aprobado
 green or Reprobado red. The rows cover minimum points/maximum errors, hits/expired targets,
 protected targets respected/identification errors, shots/precision, and net points/verdict.
@@ -415,7 +423,7 @@ future supervision grants stay separate from configuration authority.
 
 ## Validation and scope
 
-- 1228 assertions, 0 failures on isolated Windows SA-MP 0.3.DL-R1 with sscanf 2.13.1, normal exit.
+- 1261 assertions, 0 failures on isolated Windows SA-MP 0.3.DL-R1 with sscanf 2.13.1, normal exit.
   Deterministic adapters simulate player/UI/streamer/audio. Pawn VM, parsers and file I/O are real.
   New start coverage includes CRUD, bounded/sparse lists, stale/revoked dialogs, common geometry,
   multiple private markers and cleanup, nearest-post selection, public objects, exclusive zone use,
@@ -432,16 +440,20 @@ future supervision grants stay separate from configuration authority.
   back/ESC cancellation re-entry, permission/revision/range loss and allocation rollback.
   Expanded models round-trip through v9, preserve model/behavior pairs under randomization,
   and use the existing public spawn and one-hit/air-shot scoring paths.
+  New regressions cover full rectangle coverage, padded captions and button click areas,
+  deferred opening, delayed native cancellation echoes, pending-draft cleanup, the lowered pickup
+  and matching report borders.
 - Full SARP.pwn and tests compile with Pawn 3.10.10, -;+ -(+ -d3 -E. Existing gamemode warning
   suppressions remain. Unix full compilation normalizes include separators in an ignored copy only.
   Spanish source uses Windows-1252; documents use UTF-8. Static dialog buffers avoid enlarging the
   gamemode's existing stack allowance.
-- The previous build, including close/resume, pickups and the compact result format, was deployed
-  after the user's explicit restart request. The new object selector/catalogue was compiled to a
-  separate ignored AMX, without replacing the running server's binary or saved layout.
-  Deployment requires a later explicitly requested restart. Prior evidence remains in tests/README.md.
-  Actual mouse hit areas, GXT accents, model rendering/collisions/native breakage and real
-  easyDialog/YSI/timer dispatch still need the client checks in the manual guide.
+- The complete current build, including the selector corrections, lowered pickups and matching
+  report borders, was compiled and started locally on 2026-10-11 after the explicit service request.
+  UDP status confirmed 127.0.0.1:7777, all seven plugins loaded, and startup reported no load errors.
+  The saved layout hash stayed unchanged across that start. The user subsequently accepted the
+  current MVP and requested development closure. Detailed evidence remains in tests/README.md.
+  Mouse hit areas, GXT accents, model rendering/collisions/native breakage and actual
+  easyDialog/YSI/timer dispatch are manual client checks, not claims of automatic coverage.
 
 Pending: real faction/group restricted access, host identities, SQL backend, history policy,
 /evaluaciontiro and authorized supervisor queries/reviews. Their normalized draft is documented,
@@ -451,6 +463,8 @@ Later extensions: leaderboards, FTP certification, equipment administration, cus
 moving/simultaneous targets within a round, scoring rings and live scoring HUD.
 
 ## Engine references
+
+- [TextDraw rectangle sizing](https://open.mp/docs/scripting/functions/PlayerTextDrawTextSize): font 4/5 uses explicit width and height.
 
 - [GTA object IDs](https://wiki.multitheftauto.com/wiki/IDE_List): catalogue model names/IDs.
 - [Native model previews](https://open.mp/docs/scripting/functions/PlayerTextDrawSetPreviewModel).
@@ -476,8 +490,9 @@ label, preserving defaults for other callers. Glyph reference: https://github.co
 ## Start indicators and discovery (2026-10-10)
 
 Indicadores de inicio is a saved per-zone toggle, off for new zones and all formats 1-8.
-It creates one public Desert Eagle pickup (model 348, type 1) per marked start, 0.35 m above
-its saved Z in the same interior/world. Pickups have no public labels, grant no equipment,
+It creates one public Desert Eagle pickup (model 348, type 1) per marked start, 0.65 m below
+its saved character-origin Z in the same interior/world. This lowers the previous position by
+one meter to compensate for the native floating weapon presentation. Pickups have no public labels, grant no equipment,
 and do not start a round. They remain visible during a practice. Disabling or archiving the
 zone hides them while preserving the preference. Resetting the layout restores off.
 Position changes refresh only the affected pickup. Allocation failures remove partial

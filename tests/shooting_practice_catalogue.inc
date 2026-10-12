@@ -16,24 +16,48 @@ stock TestModernCatalogue()
     ResetTest(); OpenTarget(1); MenuChoose(0); MenuInput("Entrada lateral");
     MenuChoose(1);
     new revision = PracticeRevision[0], Float:x = PracticeDraft[0][PracticePointX];
-    new bool:stylesValid = true, bool:previewsValid = true, bool:labelsValid = true;
+    new bool:stylesValid = true, bool:cardsValid = true, bool:buttonsValid = true;
+    new panel = _:PracticeCatalogueDraws[0][0];
+    Check(TestTDFonts[panel] == 4 && !strcmp(TestTDText[panel], "LD_SPAC:white")
+        && TestTDPosition[panel][0] == 50.0 && TestTDPosition[panel][1] == 38.0
+        && TestTDTextSize[panel][0] == 540.0 && TestTDTextSize[panel][1] == 372.0,
+        "panel background uses an explicit full-size sprite rectangle");
     for (new i = 0; i < PracticeCatalogueDrawCount[0]; i++)
     {
         new id = _:PracticeCatalogueDraws[0][i], action = PracticeCatalogueActions[0][i];
         stylesValid = stylesValid && TestTDAlive[id] && TestTDVisible[id]
-            && (TestTDFonts[id] == 1 || TestTDFonts[id] == 5);
-        if (TestTDFonts[id] == 5)
-            previewsValid = previewsValid && action >= 0 && action < 6
-                && TestTDModels[id] == PracticeModels[action][PracticeModelID]
-                && TestTDTextSize[id][0] == 144.0 && TestTDTextSize[id][1] == 68.0
-                && TestTDPosition[id][0] >= 72.0 && TestTDPosition[id][0] + 144.0 <= 566.0
-                && TestTDPosition[id][1] >= 140.0 && TestTDPosition[id][1] + 68.0 <= 344.0;
-        else if (action >= 0)
-            labelsValid = labelsValid && !strcmp(TestTDText[id], PracticeModels[action][PracticeModelName])
-                && TestTDTextSize[id][0] == 20.0 && TestTDTextSize[id][1] == 152.0;
+            && (TestTDFonts[id] == 1 || TestTDFonts[id] == 4 || TestTDFonts[id] == 5);
+        if (TestTDFonts[id] == 4 && action >= 0)
+        {
+            new preview = _:PracticeCatalogueDraws[0][i + 1], label = _:PracticeCatalogueDraws[0][i + 2];
+            cardsValid = cardsValid && TestTDTextSize[id][0] == 152.0 && TestTDTextSize[id][1] == 100.0
+                && TestTDSelectable[id] && !TestTDSelectable[preview] && !TestTDSelectable[label]
+                && TestTDModels[preview] == PracticeModels[action][PracticeModelID]
+                && TestTDTextSize[preview][0] == 140.0 && TestTDTextSize[preview][1] == 65.0
+                && TestTDPosition[preview][0] == TestTDPosition[id][0] + 6.0
+                && TestTDPosition[preview][1] == TestTDPosition[id][1] + 5.0
+                && !strcmp(TestTDText[label], PracticeModels[action][PracticeModelName])
+                && TestTDAlignment[label] == 2 && TestTDTextSize[label][0] == 0.0 && TestTDTextSize[label][1] == 136.0
+                && TestTDPosition[label][0] == TestTDPosition[id][0] + 76.0
+                && TestTDPosition[label][1] == TestTDPosition[id][1] + 79.0
+                && TestTDPosition[label][1] + TestTDLetterSize[label][1] * 12.0 <= TestTDPosition[id][1] + 100.0;
+        }
+        if (TestTDFonts[id] == 4 && TestTDTextSize[id][1] == 26.0)
+        {
+            new label = _:PracticeCatalogueDraws[0][i + 1];
+            buttonsValid = buttonsValid && TestTDAlignment[label] == 2 && !TestTDSelectable[label]
+                && TestTDPosition[label][0] == TestTDPosition[id][0] + TestTDTextSize[id][0] / 2.0
+                && TestTDPosition[label][1] == TestTDPosition[id][1] + 7.0
+                && TestTDTextSize[label][0] == 0.0 && TestTDTextSize[label][1] == TestTDTextSize[id][0] - 12.0
+                && TestTDPosition[label][1] + TestTDLetterSize[label][1] * 12.0 <= TestTDPosition[id][1] + 26.0;
+        }
+        if (TestTDFonts[id] == 4 || TestTDFonts[id] == 5)
+            stylesValid = stylesValid && TestTDPosition[id][0] >= 50.0 && TestTDPosition[id][1] >= 38.0
+                && TestTDPosition[id][0] + TestTDTextSize[id][0] <= 590.0
+                && TestTDPosition[id][1] + TestTDTextSize[id][1] <= 410.0;
     }
-    Check(stylesValid && previewsValid && labelsValid && CatalogueCardCount() == 6 && !TestSelectionOrderWrong,
-        "catalogue has six named cards, ordinary fonts and correctly sized native model previews");
+    Check(stylesValid && cardsValid && buttonsValid && CatalogueCardCount() == 6 && !TestSelectionOrderWrong,
+        "cards, captions and centered button labels stay within explicit backgrounds");
     Check(!ClickCatalogueAction(SP_CATALOGUE_PREVIOUS) && !PracticeCataloguePage[0],
         "first-page Previous is disabled and not bound to an action");
     Check(!PracticeHandleCatalogueClick(0, PlayerText:INVALID_TEXT_DRAW)
@@ -55,7 +79,7 @@ stock TestModernCatalogue()
         for (new i = 0; i < PracticeCatalogueDrawCount[0]; i++)
         {
             new id = _:PracticeCatalogueDraws[0][i], action = PracticeCatalogueActions[0][i];
-            if (TestTDFonts[id] == 5)
+            if (TestTDFonts[id] == 4 && action >= 0)
                 matches = matches && action >= 0
                     && _:PracticeModels[action][PracticeModelCategory] == category;
         }
@@ -122,6 +146,52 @@ stock TestModernCatalogue()
     Check(!PracticeHasDraft(0) && !PracticeCatalogueOpen[0] && !TestTDCount[0]
         && PracticeMenuPage[0] == SP_MENU_TARGETS, "new-target allocation failure releases the wizard writer");
     TestTDFails = false;
+}
+
+
+stock TestCatalogueTransitions()
+{
+    ResetTest(); PracticeShowTargets(0);
+    PracticeHandleMenu(0, true, 0, "");
+    Check(PracticeCataloguePending[0] && !PracticeCatalogueOpen[0] && !TestCatalogue[0] && !TestTDCount[0],
+        "Add target closes the native dialog before opening mouse selection");
+    PracticeCatalogueTick(TestNow + PRACTICE_CATALOGUE_OPEN_DELAY - 1);
+    Check(PracticeCataloguePending[0] && !PracticeCatalogueOpen[0], "catalogue waits for the dialog transition deadline");
+    Check(!PracticeHandleCatalogueEscape(0) && PracticeCataloguePending[0] && PracticeHasDraft(0),
+        "a late dialog-close notification cannot discard the pending wizard");
+    TestNow += PRACTICE_CATALOGUE_OPEN_DELAY; PracticeCatalogueTick(TestNow);
+    new draws = TestNextTD;
+    PracticeCatalogueTick(TestNow + 500);
+    Check(PracticeCatalogueOpen[0] && !PracticeCataloguePending[0] && TestCatalogue[0]
+        && TestTDCount[0] == 38 && TestNextTD == draws,
+        "one Add target response opens and keeps exactly one catalogue");
+
+    ResetTest(); OpenTarget(1); MenuChoose(1);
+    TestDeferredSelection = true;
+    ClickCatalogueAction(SP_CATALOGUE_BACK);
+    Check(PracticeCatalogueCancelEchoes[0] == 1 && TestSelectionEchoes[0] == 1 && !PracticeCatalogueOpen[0],
+        "programmatic cancellation tracks its delayed native acknowledgement");
+    MenuChoose(1);
+    TestDeliverSelectionEcho(0);
+    Check(PracticeCatalogueOpen[0] && TestCatalogue[0] && TestTDCount[0] == 38
+        && !PracticeCatalogueCancelEchoes[0] && PracticeHasDraft(0),
+        "old cancellation acknowledgement cannot close a newly opened selector");
+    EscapeCatalogue();
+    Check(!PracticeCatalogueOpen[0] && !TestTDCount[0] && PracticeMenuPage[0] == SP_MENU_DRAFT,
+        "a real ESC still closes the selector after the delayed acknowledgement");
+    TestDeferredSelection = false;
+
+    ResetTest(); PracticeShowTargets(0); PracticeHandleMenu(0, true, 0, "");
+    TestAdmin[0] = false; TestNow += PRACTICE_CATALOGUE_OPEN_DELAY; PracticeCatalogueTick(TestNow);
+    Check(!PracticeCataloguePending[0] && !PracticeCatalogueOpen[0] && !PracticeHasDraft(0) && !TestTDCount[0],
+        "pending opening rechecks access before allocating UI");
+    ResetTest(); PracticeShowTargets(0); PracticeHandleMenu(0, true, 0, "");
+    PracticeRevision[0]++; TestNow += PRACTICE_CATALOGUE_OPEN_DELAY; PracticeCatalogueTick(TestNow);
+    Check(!PracticeHasDraft(0) && !TestTDCount[0], "pending opening rejects a changed zone revision");
+    ResetTest(); PracticeShowTargets(0); PracticeHandleMenu(0, true, 0, "");
+    PracticeResetUI(0); TestNow += PRACTICE_CATALOGUE_OPEN_DELAY; PracticeCatalogueTick(TestNow);
+    Check(!PracticeCataloguePending[0] && !PracticeCatalogueOpen[0] && !TestTDCount[0],
+        "UI reset cancels pending work so it cannot reopen after disconnect or zone changes");
 }
 
 stock TestExpandedTargetModels()

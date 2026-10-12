@@ -1,9 +1,10 @@
 # Configurar y probar las prácticas de tiro
 
-Actualizado: 2026-10-10. Hasta 64 zonas independientes por defecto, diez puntos de inicio y diez blancos por zona,
+Actualizado: 2026-10-11. Hasta 64 zonas independientes por defecto, diez puntos de inicio y diez blancos por zona,
 un participante por zona y una ronda por jugador. Las zonas archivadas cuentan para ese límite.
-El selector de objetos renovado y los modelos nuevos están compilados y probados en un servidor aislado.
-Para probarlos en el servidor local falta un reinicio solicitado. El servidor encendido conserva la entrega anterior.
+El selector, los modelos nuevos y los ajustes de altura del pickup, separadores y distribución/apertura
+están compilados, probados y aplicados al servidor local tras la solicitud de arranque del 11 de octubre.
+El usuario aceptó el MVP actual y dio por cerrada esta etapa de desarrollo.
 Todas las zonas actuales son públicas. Facciones, historial y supervisión quedan para la siguiente integración.
 
 ## Entrar y abrir la configuración
@@ -112,9 +113,11 @@ anterior. Los puntos adicionales se validan respecto al campo y sus blancos.
 
 ## Probar el selector y los objetos nuevos
 
-Después de aplicar esta entrega mediante un reinicio solicitado:
+Comprobaciones disponibles con los ajustes ya aplicados:
 
-1. Abre **Blancos > Añadir blanco**. Comprueba el panel oscuro, las tarjetas con nombres y las letras sencillas.
+1. Abre **Blancos > Añadir blanco** una sola vez. Tras una pausa breve debe abrirse y permanecer visible.
+   Comprueba que el fondo cubra todo el panel, los nombres queden dentro de cada tarjeta
+   y los títulos de los botones estén centrados. Prueba también tras volver de una selección anterior.
 2. En **Todos**, pasa a la segunda página y vuelve a la primera. Los botones de los extremos deben desactivarse.
 3. Revisa los filtros. Siluetas tiene cuatro objetos, Botellas dos, Latas uno y Otros dos.
    Las tildes de **Atrás** y **Página** deben verse correctamente.
@@ -168,6 +171,7 @@ Iniciar una práctica retira las vistas de su zona y la del participante; otras 
    Está desactivada por defecto, también al cargar una configuración anterior.
 3. Con la zona activa, comprueba una pistola flotante por puesto. Es solo una señal visual,
    sin texto flotante, entrega de armas ni inicio automático.
+   Se ha bajado un metro respecto a la posición anterior. Comprueba que se vea sutil, cerca de las caderas.
 4. Desactiva los indicadores y comprueba que desaparezcan todos. Acércate de nuevo a cualquier
    punto, a menos de 1.5 metros, y comprueba el aviso del chat:
    **Campo de tiro. Usa /practica para iniciar una práctica.**
@@ -251,17 +255,18 @@ y no superar los errores. Los disparos de preparación quedan excluidos.
 El resultado agrupa dos campos por línea, sin sangría ni prefijos repetidos:
 
 ```text
----------- CAMPO DE TIRO ----------
+----------------------------------------------------------------------------------------------
+CAMPO DE TIRO
 Puntos mínimos: 3 | Errores máximos: 1
 Aciertos: 4/5 | Sin impactar a tiempo: 1
 Protegidos respetados: 2/3 | Errores de identificación: 1
 Disparos: 6 | Precisión: 66.7%
 Puntuación neta: 3 | Veredicto: Aprobado
------------------------------------
+----------------------------------------------------------------------------------------------
 ```
 
 Sin disparos, la precisión es **no disponible**. Las interrupciones muestran el mismo título
-y delimitadores, con una línea blanca de **Incompleta** y el motivo.
+y delimitadores, con una línea blanca de **Incompleta** y el motivo. Los separadores de apertura y cierre son iguales.
 
 /practica cancelar interrumpe tu ronda. /practica ayuda muestra armas, reglas y puntuación.
 Si sales del radio de 3 metros, verás **Incompleta: Cancelada automáticamente por salir del puesto de tiro.**
@@ -304,11 +309,11 @@ Sonidos y acciones de rol se limitan a 10 metros del puesto en su mismo interior
   Prueba exposición 0.5 e intervalo 0.2, guarda y revisa esos valores después de un reinicio solicitado. Con dos jugadores confirma la privacidad del preview y que
   ambos pueden observar el blanco de una ronda real y el aviso de abandono. Solo el participante ve
   el contador y sus resultados. Reinicia y revisa nombres/modelos/rotaciones y armas seleccionadas.
-- **1.228 comprobaciones automáticas sin fallos**, ejecutadas en SA-MP 0.3.DL-R1 Windows con sscanf 2.13.1,
+- **1.261 comprobaciones automáticas sin fallos**, ejecutadas en SA-MP 0.3.DL-R1 Windows con sscanf 2.13.1,
   y compilación de pruebas y gamemode completos. Incluyen filtros, páginas, cierre, limpieza,
   guardado de modelos nuevos y rutas de puntuación. Los controles, renderizado, colisiones, audio
   y el despacho real de callbacks del cliente siguen siendo comprobaciones manuales.
-  Este cambio no se desplegó al servidor jugable.
+  La versión actual se aplicó al servidor local tras la solicitud de arranque del 11 de octubre.
 
 ## Comprobar varias zonas
 

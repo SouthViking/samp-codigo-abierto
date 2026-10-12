@@ -11,6 +11,7 @@ public PracticePulse()
 {
     PracticeRepairPreviews();
     new now = GetTickCount();
+    PracticeCatalogueTick(now);
     for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++)
         if (PracticeIsBusy(zone)) PracticeTick(zone, now);
     return 1;
@@ -94,6 +95,7 @@ hook OnPlayerDisconnect(playerid, reason)
     PracticeResetUI(playerid);
     new zone = PracticeGetPlayerZone(playerid);
     if (zone >= 0) PracticeEnd(zone, false, "desconexión", false);
+    PracticeCatalogueCancelEchoes[playerid] = 0;
     PracticeSelectedZone[playerid] = PracticePlayerZone[playerid] = -1;
     PracticeSelectedZoneID[playerid] = 0;
     return 1;
@@ -115,6 +117,7 @@ hook OnPlayerConnect(playerid)
     if (zone >= 0) PracticeCleanup(zone);
     PracticeHideCountdown(playerid);
     PracticeResetUI(playerid);
+    PracticeCatalogueCancelEchoes[playerid] = 0;
     PracticeSelectedZone[playerid] = PracticePlayerZone[playerid] = -1;
     PracticeSelectedZoneID[playerid] = 0;
     return 1;

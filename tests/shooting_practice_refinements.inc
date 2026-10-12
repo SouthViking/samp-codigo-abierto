@@ -191,7 +191,7 @@ stock TestDetailedResults()
     Check(strfind(TestChat[0], "Disparos: 2 {A8C4D9}|{FFFFFF} Precisión: 50.0%") != -1
         && strfind(TestChat[0], "% (") == -1 && strfind(TestChat[0], "Veredicto:") != -1,
         "accuracy has no attached explanation and verdict gets its own final line");
-    Check(TestPrivateMessages[0] == 7 && !TestPrivateMessages[1] && TestLongestMessage < 144 && !TestResultColourWrong,
+    Check(TestPrivateMessages[0] == 8 && !TestPrivateMessages[1] && TestLongestMessage < 144 && !TestResultColourWrong,
         "five white result rows and two soft blue dividers fit within chat limits");
     ResetTest(1); ShowFirstTarget(); TestNow += 5000; PracticeTick(0, TestNow);
     Check(strfind(TestChat[0], "Disparos: 0 {A8C4D9}|{FFFFFF} Precisión: no disponible") != -1 && !TestResultColourWrong,
@@ -213,4 +213,36 @@ stock TestExtraShotPrecision()
     Check(TestResult == 1 && TestResultHits == 2 && TestResultShots == 4 && !TestResultErrors
         && strfind(TestChat[0], "Precisión: 50.0%") != -1,
         "misses and interval shots all lower accuracy without adding identification errors");
+}
+
+
+stock TestMatchingReportBorders()
+{
+    ResetTest();
+    new result[E_PRACTICE_SESSION];
+    result[PracticeHits] = result[PracticeShootTotal] = result[PracticeNoShootTotal] = 10;
+    result[PracticeCorrectIgnores] = result[PracticeIdentificationErrors] = 10;
+    result[PracticeShots] = 99;
+    PracticeReportResult(0, true, result, "");
+    Check(TestPrivateMessages[0] == 8 && !strcmp(TestReportLines[0][0], TestReportLines[0][7])
+        && strlen(TestReportLines[0][0]) == 94 && !strcmp(TestReportLines[0][1], "CAMPO DE TIRO"),
+        "completed report has identical extended opening/closing borders and a separate colored title");
+    new bool:withinBorder = true;
+    for (new row = 2; row < 7; row++)
+    {
+        new visible;
+        for (new i = 0; TestReportLines[0][row][i]; i++)
+        {
+            if (TestReportLines[0][row][i] == '{') { i += 7; continue; }
+            visible++;
+        }
+        withinBorder = withinBorder && visible < strlen(TestReportLines[0][0]);
+    }
+    Check(withinBorder && TestLongestMessage < 144 && !TestResultColourWrong,
+        "all paired result rows fit the extended separator and remain within the chat limit");
+    TestPrivateMessages[0] = 0;
+    PracticeReportResult(0, false, result, "Cancelada automáticamente por salir del puesto de tiro.");
+    Check(TestPrivateMessages[0] == 4 && !strcmp(TestReportLines[0][0], TestReportLines[0][3])
+        && !strcmp(TestReportLines[0][1], "CAMPO DE TIRO") && !TestResultColourWrong,
+        "incomplete report reuses the same matching separators");
 }
