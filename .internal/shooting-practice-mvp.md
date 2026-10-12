@@ -1,6 +1,6 @@
 # Shooting Practice MVP - Implementation Handoff
 
-Updated: 2026-10-11. Multiple-zone administration, multiple starts per zone, independent zone sessions/editing,
+Updated: 2026-10-12. Multiple-zone administration, multiple starts per zone, independent zone sessions/editing,
 stable IDs, proximity hints, optional start pickups and v9 file persistence/migration are implemented. Existing model editing,
 private previews, mixed shoot/no-shoot scoring, permitted weapons, decimal timing and results remain.
 The native object selector now uses ordinary-font cards, category filters and pagination. Two glass
@@ -19,62 +19,36 @@ history remain future integrations, described in the data model linked below.
 - [Configuration/testing guide](shooting-practice-testing.md) and [Windows server](local-windows-server.md).
 - [Administrative data model proposal](shooting-practice-data-model.md) and [draft SQL](sql/shooting-practice.sql).
 
-## Administrative system requirements (2026-10-08)
+## Review entry point and demonstration
 
-The complete design below includes future access/history requirements. The current increment implements
-the registry, administration, independent ownership and file persistence. All current zones are public
-and /practica is unrecorded. Do not describe access lists, supervision or SQL as implemented.
+Start with the [PR review summary](shooting-practice-pr.md) for the implemented scope, commands,
+reproduction steps, verification and remaining host integration. This document describes the
+runtime architecture, editing/session lifecycle, scoring, persistence and extension boundaries.
 
-- Administrators create, select, configure and delete independent named zones. Each zone has a stable
-  ID, start/interior/world, up to ten targets, its own rules and its own practice-access grants.
-  A configurable registry capacity bounds server resources; the design must not assume one zone.
-- Only administrators can configure zones. /practicaconfig opens their zone list; /practicaconfig <id>
-  opens that zone's configuration directly. Both paths and menu responses enforce administrative access.
-  The list includes zone ID/name, operational state, access mode and evaluation availability.
-- Practice has exactly two access modes: open, or restricted to one or more groups/factions.
-  Restricted access requires at least one matching whitelist entry from current host membership.
-  There are no individual-user practice grants. Open mode stores an empty whitelist; restricted mode
-  with no grants or unresolved identity never becomes public.
-- Administrative authority and practice access are separate. Being a permitted trainee or member
-  of a permitted faction does not grant zone configuration rights. RCON is the current test policy.
-- One participant and one editing owner per zone; one active attempt per player. Different zones
-  may run independently. Locks, save state, UI revisions, previews and cleanup must belong to a zone.
-  Edits/deletion of an occupied zone are blocked, while other zones remain usable.
-- /practica resolves an eligible nearby zone in the player's interior/world. If several match, use
-  explicit selection. Administrative menus retain the selected zone ID and revalidate it on responses.
-- Proposed session purposes: /practica is unrecorded training; /evaluaciontiro is a recorded evaluation.
-  Both share the same engine, zone rules, access checks and occupancy. Purpose is fixed before start;
-  a finished training round cannot be promoted into an evaluation after its result is known.
-- Each immutable zone version has an administrator-controlled history_policy: none (default) allows
-  training only; evaluations_only also allows recorded evaluations. This policy is independent of
-  open/restricted access. Turning it off prevents new evaluations and preserves existing history.
-  Passed, failed and interrupted evaluations all remain visible to authorized supervisors.
-- Supervision is separate from configuration and participation. Individual assignments explicitly
-  cover the whole zone; group/faction rules use a minimum rank or exact selected ranks and cover only
-  attempts admitted through that group. One current rule per zone/group; can_review additionally
-  permits observations within the same scope. Permissions use current host identity/membership/rank,
-  are rechecked per attempt/query/write, and never alter automatic scores. Numeric rank IDs do not
-  encode hierarchy. Rank bridges/rules/selections are included in the SQL proposal, not runtime code.
-  Instructor/FTO roles and different rank thresholds for reading versus annotating are later extensions.
-- Configuration, access grants and future results reference stable zone/account IDs. SA-MP playerid,
-  array slots, object handles and GetTickCount are temporary values and cannot identify stored users
-  or zones. Deletion must invalidate menus, drafts and runtime lookups before an array slot is reused.
+[Author-provided MVP demonstration on YouTube](https://www.youtube.com/watch?v=cpVQbs0igC8).
+The demonstration accompanies the playable MVP. SQL, restricted access and recorded evaluations
+are future scope, and the later integration ports are verified separately by compilation/tests.
 
-This repository includes a_mysql and a configured MySQL plugin, but has no account login, persistent
-player account IDs, user-group/faction membership service, database connection or application queries.
-GetPlayerRoleplayName only formats the connected nickname; it is not an identity provider. The zone
-registry, editor and access-policy evaluation can be developed here. Real account/group/faction grants
-need adapters to the host server's existing identity and membership services; development fixtures
-must remain explicitly separate from production authorization.
+## Integration preparation after MVP closure (2026-10-11)
+
+The SQL proposal now matches multiple starts and zone-level pickup preference: sixteen tables,
+sp_zone_starts as immutable version children, and a same-version chosen-start FK on evaluations.
+Its names/coordinate/weapon/timing limits match current configuration. The SQL model remains a proposal.
+
+integration.inc supplies explicit ports called by the existing load/save, authority/access, start/end
+and shutdown paths. File v9 remains the only backend. Training is explicitly frozen in PracticePurpose
+and remains unrecorded. Missing stable identity and evaluation storage fail instead of claiming success.
+The source update compiles and passes 1291 Pawn assertions plus 54 real MySQL 8.0.34 schema checks.
+The running server retains the accepted MVP build until a later explicitly requested restart.
 
 ## Current implementation
 
 A bounded registry supports up to PRACTICE_MAX_ZONES (64 by default) independent zones, including
-archived records. Each has a stable positive ID, name, active/inactive state, start and up to ten targets.
+archived records. Each has a stable positive ID, name, active/inactive state, up to ten starts and up to ten targets.
 Array slots are private handles; IDs increase monotonically and archived IDs/slots are not recycled.
 One participant per zone and one active round per player; different zones can operate simultaneously.
 Each position appears once per round, one at a time. Faction/civilian ranges can reuse the engine.
-Results can inform an instructor's assessment; they do not certify an entire FTP.
+Results can inform an instructor's assessment. Formal certification is outside this MVP.
 
 Targets store optional name (32 characters), model, independent behavior, XYZ position, XYZ rotation,
 interior/world. Catalogue: box 1271, armed silhouettes 1583/1584, civilian silhouettes 1585/1586,
@@ -340,14 +314,63 @@ Failed saves keep changes in memory and show retry; restarting before successful
 Keep external backups of valuable layouts. Archived records consume registry capacity by design.
 Runtime state, attempts, credentials, logs and binaries remain ignored. Old include exports are not imported.
 
+## Future administrative requirements (2026-10-08)
+
+The complete design below includes future access/history requirements. The current increment implements
+the registry, administration, independent ownership and file persistence. All current zones are public
+and /practica is unrecorded. Do not describe access lists, supervision or SQL as implemented.
+
+- Administrators create, select, configure and delete independent named zones. Each zone has a stable
+  ID, up to ten start points, a common interior/world, up to ten targets, its own rules and practice-access grants.
+  A configurable registry capacity bounds server resources; the design must not assume one zone.
+- Only administrators can configure zones. /practicaconfig opens their zone list; /practicaconfig <id>
+  opens that zone's configuration directly. Both paths and menu responses enforce administrative access.
+  The list includes zone ID/name, operational state, access mode and evaluation availability.
+- Practice has exactly two access modes: open, or restricted to one or more groups/factions.
+  Restricted access requires at least one matching whitelist entry from current host membership.
+  There are no individual-user practice grants. Open mode stores an empty whitelist; restricted mode
+  with no grants or unresolved identity never becomes public.
+- Administrative authority and practice access are separate. Being a permitted trainee or member
+  of a permitted faction does not grant zone configuration rights. RCON is the current test policy.
+- One participant and one editing owner per zone; one active attempt per player. Different zones
+  may run independently. Locks, save state, UI revisions, previews and cleanup must belong to a zone.
+  Edits/deletion of an occupied zone are blocked, while other zones remain usable.
+- /practica resolves an eligible nearby zone in the player's interior/world. If several match, use
+  explicit selection. Administrative menus retain the selected zone ID and revalidate it on responses.
+- Proposed session purposes: /practica is unrecorded training; /evaluaciontiro is a recorded evaluation.
+  Both share the same engine, zone rules, access checks and occupancy. Purpose is fixed before start;
+  a finished training round cannot be promoted into an evaluation after its result is known.
+- Each immutable zone version has an administrator-controlled history_policy: none (default) allows
+  training only; evaluations_only also allows recorded evaluations. This policy is independent of
+  open/restricted access. Turning it off prevents new evaluations and preserves existing history.
+  Passed, failed and interrupted evaluations all remain visible to authorized supervisors.
+- Supervision is separate from configuration and participation. Individual assignments explicitly
+  cover the whole zone; group/faction rules use a minimum rank or exact selected ranks and cover only
+  attempts admitted through that group. One current rule per zone/group; can_review additionally
+  permits observations within the same scope. Permissions use current host identity/membership/rank,
+  are rechecked per attempt/query/write, and never alter automatic scores. Numeric rank IDs do not
+  encode hierarchy. Rank bridges/rules/selections are included in the SQL proposal, not runtime code.
+  Instructor/FTO roles and different rank thresholds for reading versus annotating are later extensions.
+- Configuration, access grants and future results reference stable zone/account IDs. SA-MP playerid,
+  array slots, object handles and GetTickCount are temporary values and cannot identify stored users
+  or zones. Deletion must invalidate menus, drafts and runtime lookups before an array slot is reused.
+
+This repository includes a_mysql and a configured MySQL plugin, but has no account login, persistent
+player account IDs, user-group/faction membership service, database connection or application queries.
+GetPlayerRoleplayName only formats the connected nickname; it is not an identity provider. The zone
+registry and editor are implemented here; restricted access still needs the host membership adapters. Real account/group/faction grants
+need adapters to the host server's existing identity and membership services; development fixtures
+must remain explicitly separate from production authorization.
+
 ## Persistence and future integration boundaries
 
 The supported prototype backend is the versioned local configuration file described above. Confirmed
 configuration changes survive restart. Session state and reports live only in memory; completed and
-interrupted attempts are not saved. There are no SQL stubs returning fake success or assumed schemas.
+interrupted attempts are not saved. The explicit integration ports provide real file operations and unavailable/skipped identity/history
+placeholders. They contain no SQL queries, host connection or fabricated persistence acknowledgements.
 
 Confirmed changes follow PracticeConfigurationChanged -> PracticeSaveAndNotify ->
-PracticeSaveConfiguration. Start, target creation/edit/duplicate/delete, rules and reset already use
+PracticeRepositorySave -> PracticeSaveConfiguration. Start, target creation/edit/duplicate/delete, rules and reset already use
 this path. Keep persistence at that boundary rather than adding database calls to individual dialogs,
 native editor UPDATE callbacks, previews, weapon-shot callbacks or timer ticks.
 
@@ -356,16 +379,18 @@ Search the production module for TODO(SP- to locate the planned boundaries:
 | Marker | Location | Integration work |
 | --- | --- | --- |
 | SP-ACCESS/HISTORY | config.inc | Versioned zone access grants and history policy, once host identity adapters exist. |
-| SP-ADMIN | registry.inc, PracticeIsAdministrator | Replace RCON with the host administrative role; retain separate training/supervision grants. |
+| SP-ADMIN | integration.inc, PracticeHostIsAdministrator | Replace RCON with the host administrative role; retain separate training/supervision grants. |
 | SP-DB-ID | registry.inc | Map persistent SQL BIGINT identifiers without truncation into runtime handles. |
-| SP-ACCESS | session.inc, PracticeCanUseStation | Open mode or a zone-specific group/faction whitelist checked against cached host membership. |
-| SP-RECORDING | session.inc, PracticeStart | Select training/evaluation purpose and freeze zone history policy; gate evaluations on durable start registration. |
-| SP-DB-SAVE/LOAD | storage.inc, repository boundary | Replace validated file persistence with host-connection transactions and immutable configuration versions/identity references. |
-| SP-DB-ACK | storage.inc, PracticeSaveAndNotify | Confirm committed asynchronous writes, pending/retry state per zone/revision, safe requester notification. |
-| SP-DB-IDENTITY | session.inc, PracticeStart | For recorded evaluations, capture stable subject/zone/attempt IDs, UTC start and configuration/sequence snapshot. |
-| SP-DB-RESULT | session.inc, PracticeEnd before cleanup | For evaluations only, save immutable final counters, frozen rules, completion/reason and timestamps once per attempt. |
-| SP-DB-BOOTSTRAP | hooks.inc, OnGameModeInit | Load after the host connection is ready; gate zone usage/editing until validated loading finishes. |
-| SP-DB-SHUTDOWN | hooks.inc, OnGameModeExit | Record active evaluations as incomplete and coordinate flushing before the shared connection closes. |
+| SP-ACCESS | integration.inc, PracticeHostCanUseZone | Open mode or a zone-specific group/faction whitelist checked against cached host membership. |
+| SP-ACCESS-UI | integration.inc, future zone administration dialogs | Let staff select open/restricted access and assign one or more host factions/groups to a zone. |
+| SP-SUPERVISION | integration.inc, future history queries/reviews | Add staff-managed supervisor assignments and group/rank rules; recheck the allowed attempt scope for each query/write. |
+| SP-RECORDING | integration.inc, PracticeIntegrationBeforeStart | Select training/evaluation purpose and freeze zone history policy; gate evaluations on durable start registration. |
+| SP-DB-SAVE/LOAD | integration.inc, PracticeRepositoryLoad | Replace validated file persistence with host-connection transactions and immutable configuration versions/identity references. |
+| SP-DB-ACK | integration.inc, PracticeRepositorySave | Confirm committed asynchronous writes, pending/retry state per zone/revision, safe requester notification. |
+| SP-DB-IDENTITY | integration.inc, PracticeHostResolveSubject / BeforeStart | For recorded evaluations, capture stable subject/zone/attempt IDs, UTC start and configuration/sequence snapshot. |
+| SP-DB-RESULT | integration.inc, PracticeIntegrationOnEnd before cleanup | For evaluations only, save immutable final counters, frozen rules, completion/reason and timestamps once per attempt. |
+| SP-DB-BOOTSTRAP | integration.inc, PracticeRepositoryBootstrap via OnGameModeInit | Load after the host connection is ready; gate zone usage/editing until validated loading finishes. |
+| SP-DB-SHUTDOWN | integration.inc, PracticeIntegrationShutdown via OnGameModeExit | Record active evaluations as incomplete and coordinate flushing before the shared connection closes. |
 
 The zone registry/ownership and legacy migration are now implemented. Restricted practice, real
 account/group/faction identities and history policy require the host adapters described in the SQL
@@ -373,7 +398,7 @@ proposal. The file registry currently contains public zones without access grant
 Do not invent account or faction IDs or infer authorization from display names.
 
 For a database backend, use the host gamemode's shared connection. Persist each complete zone and
-its rules/targets/grants consistently, including removals/reset. Load into temporary records and use
+its starts/indicators/rules/targets/grants consistently, including removals/reset. Load into temporary records and use
 the existing validators before publication. Incomplete layouts may be configured but cannot start.
 Choose one authoritative backend; automatic file/database dual writes are not part of this version.
 Queued writes do not mean success. Late load/save callbacks must not overwrite a newer zone state,
@@ -394,8 +419,8 @@ If closing persistence fails, keep a durable final snapshot for retry and explic
 or failed storage; displaying a local result does not confirm that the evaluation was saved.
 The start row alone cannot recover final counters after a crash. Failed and cancelled evaluations
 must be retained alongside passed ones; supervisors see stored evaluations, not unrecorded training.
-Game-mode shutdown currently performs cleanup without a final report and needs its own incomplete
-attempt capture when history is implemented. Database-backed history remains future work.
+Game-mode shutdown calls the close port for every active session before cleanup, without UI/audio.
+The port currently skips training. Durable interrupted-evaluation capture/flush needs the host backend. Database-backed history remains future work.
 
 PracticeIsAdministrator centralizes the current RCON policy for commands, zone list/dialogs and
 ongoing editor/view checks. PracticeAdminAvailable additionally requires being alive/on foot.
@@ -408,7 +433,8 @@ future supervision grants stay separate from configuration authority.
 | --- | --- |
 | config.inc | Records, model catalog, rules, readiness. |
 | registry.inc | Stable IDs, zone metadata, player selection, capacity. |
-| storage.inc | Whole-registry serialization, migration, validation, recovery and save status. |
+| storage.inc | FILE whole-registry serialization, migration, validation, recovery and save status. |
+| integration.inc | Host authority/access/identity, repository bootstrap/save/load, session and shutdown ports. |
 | sequence.inc | Frozen positions, pairs and randomization. |
 | editor.inc | Draft ownership, private preview, native editor lifecycle. |
 | start_setup.inc | Multiple start-point menus, capture, naming, relocation and deletion. |
@@ -423,7 +449,7 @@ future supervision grants stay separate from configuration authority.
 
 ## Validation and scope
 
-- 1261 assertions, 0 failures on isolated Windows SA-MP 0.3.DL-R1 with sscanf 2.13.1, normal exit.
+- 1291 assertions, 0 failures on isolated Windows SA-MP 0.3.DL-R1 with sscanf 2.13.1, normal exit.
   Deterministic adapters simulate player/UI/streamer/audio. Pawn VM, parsers and file I/O are real.
   New start coverage includes CRUD, bounded/sparse lists, stale/revoked dialogs, common geometry,
   multiple private markers and cleanup, nearest-post selection, public objects, exclusive zone use,
@@ -443,11 +469,15 @@ future supervision grants stay separate from configuration authority.
   New regressions cover full rectangle coverage, padded captions and button click areas,
   deferred opening, delayed native cancellation echoes, pending-draft cleanup, the lowered pickup
   and matching report borders.
+  Integration tests verify real file save/load/bootstrap calls, separate staff/public access,
+  unresolved stable identity, recorded-start rejection, origin/plan snapshot before cleanup
+  including no-notification disconnect, rejected-start cleanup and silent unrecorded shutdown.
+  The SQL proposal passes 54 real MySQL 8.0.34 assertions in a disposable independent instance.
 - Full SARP.pwn and tests compile with Pawn 3.10.10, -;+ -(+ -d3 -E. Existing gamemode warning
   suppressions remain. Unix full compilation normalizes include separators in an ignored copy only.
-  Spanish source uses Windows-1252; documents use UTF-8. Static dialog buffers avoid enlarging the
+  Spanish Pawn source and the legacy root README use Windows-1252; feature documents use UTF-8. Static dialog buffers avoid enlarging the
   gamemode's existing stack allowance.
-- The complete current build, including the selector corrections, lowered pickups and matching
+- The accepted playable MVP build, including the selector corrections, lowered pickups and matching
   report borders, was compiled and started locally on 2026-10-11 after the explicit service request.
   UDP status confirmed 127.0.0.1:7777, all seven plugins loaded, and startup reported no load errors.
   The saved layout hash stayed unchanged across that start. The user subsequently accepted the
@@ -459,7 +489,7 @@ Pending: real faction/group restricted access, host identities, SQL backend, his
 /evaluaciontiro and authorized supervisor queries/reviews. Their normalized draft is documented,
 not applied to a database or enabled by runtime placeholders. No fake persistence acknowledgments.
 
-Later extensions: leaderboards, FTP certification, equipment administration, custom assets,
+Later extensions: leaderboards, formal certification, equipment administration, custom assets,
 moving/simultaneous targets within a round, scoring rings and live scoring HUD.
 
 ## Engine references

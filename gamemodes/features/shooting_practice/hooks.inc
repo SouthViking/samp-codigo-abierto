@@ -27,10 +27,7 @@ hook OnGameModeInit()
         PracticeSelectedZoneID[playerid] = 0;
     }
     PracticeInitializeRegistry();
-    // TODO(SP-DB-BOOTSTRAP): in database mode, load only after the host's shared
-    // connection is ready. Keep zone usage/editing gated until validated loading
-    // completes; the practice feature must not own credentials or a connection.
-    PracticeLoadConfiguration();
+    PracticeRepositoryBootstrap();
     // One gamemode-owned pulse polls real deadlines. SA-MP timer delays never
     // shorten countdown pauses, exposure or decimal intervals.
     PracticePulseTimer = SetTimer("PracticePulse", 50, true);
@@ -43,10 +40,7 @@ hook OnGameModeExit()
     PracticePulseTimer = 0;
     for (new playerid = 0; playerid < MAX_PLAYERS; playerid++) PracticeResetUI(playerid);
     PracticeResetDiscovery();
-    // TODO(SP-DB-SHUTDOWN): snapshot active recorded evaluations as interrupted
-    // before cleanup; training stays unrecorded. Drain writes in the host's
-    // controlled shutdown before closing its connection; this final hook alone
-    // cannot guarantee completion of asynchronous queries.
+    PracticeIntegrationShutdown();
     for (new zone = 0; zone < PRACTICE_MAX_ZONES; zone++) PracticeCleanup(zone);
     return 1;
 }

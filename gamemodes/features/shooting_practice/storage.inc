@@ -6,8 +6,8 @@
 #define PRACTICE_CONFIG_TEMP "shooting_practice.cfg.tmp"
 #define PRACTICE_CONFIG_BACKUP "shooting_practice.cfg.bak"
 // File backend v9 stores the entire registry. Attempts remain transient.
-// TODO(SP-DB-SAVE/LOAD): replace this repository with host-connection transactions,
-// immutable configuration versions and external identity references. No SQL in dialogs/shots.
+// FILE implementation behind integration.inc repository ports. SQL substitution belongs
+// at that boundary, preserving full version/start/indicator snapshots and async acknowledgements.
 
 stock bool:PracticeWriteLine(File:output, const line[])
 {
@@ -334,7 +334,7 @@ stock bool:PracticeLoadConfiguration()
 stock PracticeSaveAndNotify(playerid, zone = -1)
 {
     if (zone < 0) zone = PracticeSelectedZone[playerid];
-    new bool:success = PracticeSaveConfiguration();
+    new bool:success = PracticeRepositorySave();
     PracticeRegistrySavePending = !success;
     if (success)
     {

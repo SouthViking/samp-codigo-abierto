@@ -10,6 +10,7 @@
 #include "features/shooting_practice/presentation"
 #include "features/shooting_practice/editor"
 #include "features/shooting_practice/storage"
+#include "features/shooting_practice/integration"
 #include "features/shooting_practice/setup"
 #include "features/shooting_practice/catalogue"
 #include "features/shooting_practice/start_setup"

@@ -1,11 +1,16 @@
 # Configurar y probar las prácticas de tiro
 
-Actualizado: 2026-10-11. Hasta 64 zonas independientes por defecto, diez puntos de inicio y diez blancos por zona,
+Actualizado: 2026-10-12. Hasta 64 zonas independientes por defecto, diez puntos de inicio y diez blancos por zona,
 un participante por zona y una ronda por jugador. Las zonas archivadas cuentan para ese límite.
 El selector, los modelos nuevos y los ajustes de altura del pickup, separadores y distribución/apertura
 están compilados, probados y aplicados al servidor local tras la solicitud de arranque del 11 de octubre.
 El usuario aceptó el MVP actual y dio por cerrada esta etapa de desarrollo.
 Todas las zonas actuales son públicas. Facciones, historial y supervisión quedan para la siguiente integración.
+La preparación posterior de SQL añade puestos versionados y funciones de integración, con el archivo
+como backend activo. Está compilada y probada, pendiente de aplicar mediante un reinicio solicitado.
+
+[Demostración del MVP en YouTube](https://www.youtube.com/watch?v=cpVQbs0igC8).
+El [resumen para la PR](shooting-practice-pr.md) distingue el alcance implementado y las integraciones futuras.
 
 ## Entrar y abrir la configuración
 
@@ -231,12 +236,12 @@ El comando mueve al personaje. Los puntos se marcan desde Puntos de inicio > Añ
    para elegir la zona. Dentro de la misma zona se toma el punto más cercano. También puedes usar **/practica <ID>**, estando junto al inicio de esa zona.
    **/practica ayuda** muestra sus reglas; **/practica cancelar** termina solo tu ronda.
 4. Verás **Comienza en 3, 2, 1** en pantalla, con un pitido por segundo. El contador desaparece
-   al aparecer el primer blanco. Oirás otro pitido en cada aparición. Ambos comportamientos usan
-   el mismo pitido. Cajas: roja DISPARAR, azul NO DISPARAR. Las siluetas conservan sus texturas:
+   al aparecer el primer blanco. Oirás otro pitido en cada aparición. La cuenta regresiva usa el sonido
+   1056 y las apariciones el 1057. Cajas: roja DISPARAR, azul NO DISPARAR. Las siluetas conservan sus texturas:
    el instructor debe explicar el criterio y elegir figuras distinguibles.
 5. Permanece a menos de 3 metros del punto desde el que iniciaste. Ir a otra caseta cancela la ronda
    si te alejas de ese punto. Cada blanco aparece una sola vez.
-6. Al terminar hay otra señal, una acción ambiental y un resumen privado de siete líneas.
+6. Al terminar hay otra señal, una acción ambiental y un resumen privado de ocho líneas.
    El título y los separadores usan azul suave **#A8C4D9**. Los datos son blancos,
    salvo **Aprobado** en verde o **Reprobado** en rojo. «Veredicto:» y la puntuación siguen blancos.
 
@@ -309,11 +314,13 @@ Sonidos y acciones de rol se limitan a 10 metros del puesto en su mismo interior
   Prueba exposición 0.5 e intervalo 0.2, guarda y revisa esos valores después de un reinicio solicitado. Con dos jugadores confirma la privacidad del preview y que
   ambos pueden observar el blanco de una ronda real y el aviso de abandono. Solo el participante ve
   el contador y sus resultados. Reinicia y revisa nombres/modelos/rotaciones y armas seleccionadas.
-- **1.261 comprobaciones automáticas sin fallos**, ejecutadas en SA-MP 0.3.DL-R1 Windows con sscanf 2.13.1,
+- **1.291 comprobaciones automáticas sin fallos**, ejecutadas en SA-MP 0.3.DL-R1 Windows con sscanf 2.13.1,
   y compilación de pruebas y gamemode completos. Incluyen filtros, páginas, cierre, limpieza,
   guardado de modelos nuevos y rutas de puntuación. Los controles, renderizado, colisiones, audio
   y el despacho real de callbacks del cliente siguen siendo comprobaciones manuales.
-  La versión actual se aplicó al servidor local tras la solicitud de arranque del 11 de octubre.
+  El MVP se aplicó al servidor local tras la solicitud de arranque del 11 de octubre.
+  La preparación posterior de integración está compilada, con **54 comprobaciones SQL** en una BD
+  temporal independiente. Su modelo describe la conexión futura. No activa un backend SQL ni historial.
 
 ## Comprobar varias zonas
 

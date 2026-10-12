@@ -1,9 +1,11 @@
 # Shooting practice regression tests
 
-Current status: 2026-10-11. The current build includes the latest layout, opening, pickup height
+Current status: 2026-10-11. The accepted playable MVP includes the latest layout, opening, pickup height
 and report border corrections. Automated verification on 2026-10-10 passed 1261 assertions.
 The complete gamemode was compiled and started locally on 2026-10-11 on explicit request,
 and the user accepted the MVP and requested development closure.
+The subsequent integration preparation passes 1291 Pawn assertions and 54 real MySQL checks.
+File storage stays active. These integration ports are compiled to a separate AMX and not yet deployed.
 
 The suite includes production configuration, registry, storage, sequence, session, presentation, editor and
 dialog code. shooting_practice_ui.inc exercises configuration flows; shooting_practice_refinements.inc
@@ -17,6 +19,8 @@ closing/resuming sections, retained drafts/views, stale records, save ordering a
 shooting_practice_discovery.inc covers per-zone pickups, private entry hints, allocation rollback and v1-v8 indicator migration.
 shooting_practice_catalogue.inc covers native cards, filters/pages, cursor ownership and allocation failure,
 plus expanded model storage, randomized pairs, previews and scoring paths.
+shooting_practice_integration.inc covers real host/repository/session ports and explicit unavailable
+evaluation persistence. shooting_practice_schema.sql exercises the SQL proposal in a disposable database.
 Player state, clock, audio,
 dialog rendering, model cards and streamer operations use deterministic adapters.
 Pawn execution, format, sscanf 2.13.1 and file I/O are real. Results are captured before the actual
@@ -49,7 +53,34 @@ positions, configuration, AMX and logs are not overwritten.
 The tests intentionally overwrite their own scriptfiles/shooting_practice.cfg, .tmp and .bak.
 Never run the test AMX in a live/playable server directory.
 
-## Recorded verification: 2026-10-10 — visual and opening corrections
+## Recorded verification: 2026-10-11 — integration preparation
+
+**1291 assertions, 0 failures** on isolated Windows SA-MP 0.3.DL-R1.
+Log: .local-server/practice-tests/1bd53b68981e44eebee6765ddda2b743/server_log.txt.
+Tests and the full gamemode compile with Pawn 3.10.10 and -;+ -(+ -d3 -E.
+Coverage includes repository save/load/bootstrap, RCON/public access separation, unresolved subject keys,
+before-start admission with the chosen booth, unavailable evaluation registration/close, pre-cleanup
+origin/rules/result/plan delivery, notification-disabled disconnect and silent shutdown.
+
+**54 SQL assertions** pass against real MySQL 8.0.34 with all sixteen tables.
+Log: .local-server/sql-tests/ffe113a930cb42b3bd265013d783f2c0/checks.log.
+The chosen-start composite FK rejects other zones and other versions of the same zone.
+Other checks cover defaults, multiple/sparse starts, flags, names/geometry/timing/weapon limits,
+catalogue IDs, interrupted results and immutable referenced history after switching/archiving.
+
+Run the SQL checks with an installed MySQL 8.0.16+ bin directory:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-shooting-practice-sql.ps1
+```
+
+Use -MySqlBin if mysqld.exe is not on PATH. The runner creates a fresh ignored data directory,
+initializes a standalone server, chooses an available loopback TCP port in 33079-33099,
+loads tests through batch stdin and shuts down only that instance. It ignores normal option
+files and points MYSQL_TEST_LOGIN_FILE at a private absent file. The game and installed DB services
+are never used as test databases. No queries/backend credentials were added to the gamemode.
+
+## Previous verification: 2026-10-10 — visual and opening corrections
 
 **1261 assertions, 0 failures** on isolated Windows SA-MP 0.3.DL-R1, normal process exit.
 Tests and full SARP.pwn compile with Pawn 3.10.10 and -;+ -(+ -d3 -E.

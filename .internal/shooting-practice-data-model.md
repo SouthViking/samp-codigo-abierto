@@ -1,15 +1,22 @@
 # Propuesta SQL para zonas de prácticas de tiro
 
-Fecha: 2026-10-08. Estado: modelo base definido para formalizar la especificación funcional;
-implementación e integración con el servidor principal pendientes.
+Fecha: 2026-10-12. Estado: modelo SQL actualizado al MVP y funciones de integración conectadas
+al flujo actual. El backend SQL y las identidades/permisos del servidor principal siguen pendientes.
 El [DDL propuesto](sql/shooting-practice.sql) no es una migración aplicada ni activa un backend SQL.
 El registro de múltiples zonas y hasta diez puntos de inicio por zona y su guardado en archivo v9 están implementados. Todas las zonas
 actuales son públicas y los resultados siguen sin historial persistente. Las reglas de acceso,
 identidad y supervisión de este documento corresponden a la integración futura.
 
-Actualización del prototipo: 2026-10-10. El DDL del 2026-10-08 todavía modela un inicio por versión.
-Antes de integrar SQL deberá incorporar una colección de puntos por versión y el punto elegido
-como parte del contexto inmutable de cada evaluación. Ese ajuste SQL sigue pendiente.
+El DDL actualizado incorpora `sp_zone_starts`, hasta diez puestos por versión, y
+`sp_attempts.start_point_id` con una clave foránea compuesta que exige la misma versión.
+La opción `start_indicators_enabled` se guarda por versión y afecta a todos sus puestos.
+Las funciones de integración del módulo usan el archivo v9. La resolución de identidad y el
+registro de evaluaciones devuelven explícitamente que no están disponibles.
+
+Para revisar la entrega actual, consulta el [resumen de la PR](shooting-practice-pr.md) y la
+[documentación del sistema](shooting-practice-mvp.md). La
+[demostración del MVP](https://www.youtube.com/watch?v=cpVQbs0igC8) acompaña el funcionamiento del prototipo,
+sin implicar que el backend SQL, las facciones o el historial estén implementados.
 
 ## Alcance acordado
 
@@ -71,7 +78,7 @@ asistencia de instructor ni certificaciones; se podrán evaluar esas extensiones
 
 ## Estructura propuesta
 
-Los nombres usan el prefijo `sp_`. Las quince tablas separan referencias externas, configuración,
+Los nombres usan el prefijo `sp_`. Las dieciséis tablas separan referencias externas, configuración,
 historial y supervisión. Sus funciones pueden incorporarse por etapas.
 
 | Tabla | Qué representa | Relaciones principales |
@@ -80,11 +87,12 @@ historial y supervisión. Sus funciones pueden incorporarse por etapas.
 | `sp_groups` | Referencia a un grupo o facción existente. | Fuente + tipo + ID externo únicos. No almacena miembros ni crea facciones. |
 | `sp_group_ranks` | Referencia a un rango externo de un grupo/facción. | Grupo + ID externo únicos; no almacena miembros ni define jerarquías propias. |
 | `sp_zones` | Identidad estable de una zona y su estado operativo. | Apunta a su versión vigente; conserva creador y fecha de archivo. |
-| `sp_zone_versions` | Configuración de una zona en un momento concreto. | Zona, número de versión, nombre, inicio, dimensión, tiempos, criterios, aleatoriedad, acceso y política de historial. |
+| `sp_zone_versions` | Configuración de una zona en un momento concreto. | Zona, número de versión, nombre, dimensión compartida, pickup activado/desactivado, tiempos, criterios, aleatoriedad, acceso e historial. |
+| `sp_zone_starts` | Puestos de inicio de una versión. | Orden del 1 al 10, nombre opcional, posición y orientación. ID propio y pertenencia a una versión. |
 | `sp_zone_targets` | Blancos de una versión de configuración. | Una fila por blanco: orden, nombre, modelo, comportamiento, posición y rotación. |
 | `sp_zone_weapons` | Armas permitidas en una versión. | Relación versión–arma, sin máscaras de bits ni listas de texto. |
 | `sp_zone_groups` | Whitelist de una versión. | Relación versión–grupo/facción; evita duplicados. |
-| `sp_attempts` | Una evaluación registrada, en curso, completa o interrumpida. | Participante y versión exacta utilizada; fechas, contadores y evaluación automática. |
+| `sp_attempts` | Una evaluación registrada, en curso, completa o interrumpida. | Participante, versión y puesto elegido, fechas, contadores, motivo y evaluación automática. |
 | `sp_attempt_groups` | Grupos de la whitelist que autorizaron la entrada en esa evaluación. | Conserva el contexto de admisión aunque después cambie la pertenencia. |
 | `sp_attempt_targets` | Secuencia de la evaluación y resolución de cada blanco. | Detalle consultable; vincula posiciones y estímulos a la misma versión, sin guardar un evento por disparo. |
 | `sp_zone_supervisors` | Asignaciones individuales para consultar toda una zona. | Zona–persona; `can_review` permite añadir observaciones. Son concesiones explícitas de administradores. |
@@ -102,6 +110,7 @@ facciones es por personaje. La fuente concreta determina ese contrato.
 ```mermaid
 erDiagram
     sp_zones ||--o{ sp_zone_versions : versiones
+    sp_zone_versions ||--o{ sp_zone_starts : puestos
     sp_zone_versions ||--o{ sp_zone_targets : blancos
     sp_zone_versions ||--o{ sp_zone_weapons : armas
     sp_zone_versions ||--o{ sp_zone_groups : whitelist
@@ -109,6 +118,7 @@ erDiagram
     sp_groups ||--o{ sp_group_ranks : rangos
     sp_zone_versions ||--o{ sp_attempts : utilizada
     sp_subjects ||--o{ sp_attempts : participante
+    sp_zone_starts ||--o{ sp_attempts : puesto_elegido
     sp_zones ||--o{ sp_zone_supervisors : supervisores
     sp_subjects ||--o{ sp_zone_supervisors : asignado
     sp_zones ||--o{ sp_zone_supervisor_rules : reglas
@@ -122,9 +132,9 @@ erDiagram
 
 `sp_zones.id` es el ID que verá el administrador. No cambia al editar la zona.
 `sp_zone_versions.id` identifica una configuración concreta y su `version_number` crece dentro
-de esa zona. Nombre, geometría, reglas, armas, whitelist y política de historial pertenecen a esa versión.
+de esa zona. Nombre, puestos, geometría de blancos, indicador de inicio, reglas, armas, whitelist e historial pertenecen a esa versión.
 
-Cada guardado confirmado crea una versión nueva con sus blancos, armas y grupos dentro de una
+Cada guardado confirmado crea una versión nueva con sus puestos, blancos, armas y grupos dentro de una
 transacción. Después se cambia el puntero de la zona a esa versión. Los borradores del editor no
 se guardan como versiones. Una configuración parcial puede conservarse, pero la zona permanece
 desactivada hasta cumplir las condiciones necesarias para practicar.
@@ -142,6 +152,35 @@ Cada evaluación guarda `zone_version_id`, por lo que cambiar luego el puntaje m
 no transforma una evaluación aprobada anteriormente en reprobada. Cambiar una facción autorizada
 tampoco reescribe quién tuvo acceso a las evaluaciones pasadas. El nombre anterior de la zona
 permanece disponible en la versión histórica.
+
+## Correspondencia con la configuración actual
+
+- Hasta diez puestos y diez blancos por versión. `sort_order` acepta del 1 al 10 y es único dentro
+  de cada versión. Los huecos se conservan. Al cargar un puesto se usa
+  `PracticeStartSlot(sort_order - 1)`. El índice Pawn no es una identidad SQL.
+- Nombre de zona de hasta 48 caracteres y nombres opcionales de puestos/blancos de hasta 32.
+  Las validaciones del módulo siguen comprobando caracteres admitidos y representación para el cliente.
+- Posiciones XYZ entre -20000 y 20000. Orientaciones normalizadas en grados con seis decimales.
+  Un ángulo legado de 360 se normaliza a 0 al importar.
+- Interior y mundo pertenecen a la versión y se comparten entre sus puestos/blancos.
+  El servicio valida blancos a 3-100 metros de cada puesto y la separación de nuevos puestos.
+  Radios de inicio de 1.5 metros y abandono de 3 metros congelados como constantes del MVP.
+  Una configuración parcial o con geometría incompleta se conserva inactiva.
+- Indicadores desactivados por defecto. Al activarlos se crea una pistola decorativa en cada
+  puesto. Modelo 348, tipo 1 y desplazamiento Z -0.65 siguen siendo constantes del código,
+  no nuevas opciones por puesto. No se guardan handles de pickups, etiquetas ni checkpoints.
+- Una fila por arma permitida, IDs 22-34. Preparación de 1000-30000 ms en segundos enteros,
+  exposición de 100-60000 ms e intervalo de 0-30000 ms en pasos de 100 ms.
+  Puntaje mínimo del 1 al 10 y errores máximos del 0 al 10.
+- Los modelos se guardan por ID. El catálogo actual tiene 1271, 1583-1586, 1543, 1544, 2601 y 1238.
+  Su categoría y su vista en el selector se derivan del catálogo. El SQL admite IDs propios con signo,
+  pero el servicio debe validar que el modelo esté disponible antes de activarlo.
+- El acceso inicial del SQL es `open` y el historial `none`, igual que el MVP de archivo.
+  El backend futuro validará las zonas restringidas y su whitelist antes de habilitar su uso.
+
+El DDL es una definición para una BD vacía, no un ALTER automático sobre un servidor existente.
+Para importar un modelo anterior con un inicio, se crea la fila de puesto con orden 1 y se deja
+el indicador desactivado. Las identidades de autores deberán resolverse con el servidor principal.
 
 ## Acceso y referencias externas
 
@@ -173,7 +212,12 @@ privilegios por ser creador. La autoridad administrativa siempre viene del servi
 `sp_attempts` usa una clave única de intento para que un reintento de escritura no duplique la
 evaluación. Distingue `in_progress`, `completed` e `interrupted`. Registra inicio/fin en UTC,
 motivo de interrupción, versión del algoritmo de puntuación y nombre visible al iniciar.
-La identidad estable es el FK del participante; el nombre es solo una referencia histórica.
+La identidad estable es el FK del participante. El nombre es solo una referencia histórica.
+`start_point_id` pertenece obligatoriamente a `zone_version_id`. La fila de puesto conserva su
+nombre, posición y orientación históricos. Cambiar de caseta, renombrarla o borrarla en una versión
+nueva no altera el origen de una evaluación anterior.
+`interruption_reason` guarda un código estable y `interruption_message` conserva por separado
+la explicación traducida de hasta 144 caracteres. No se usa el texto del chat como código.
 El cierre se acepta una sola vez desde `in_progress`; un reintento no reevalúa ni sobrescribe
 una evaluación que ya quedó cerrada.
 
@@ -311,7 +355,7 @@ abierto cuando se revocó el permiso. No se conserva acceso por un listado previ
 - InnoDB, claves foráneas, claves únicas e índices por zona/versión, participante/fecha y grupo/intento.
   El DDL de referencia usa `CHECK` de MySQL 8.0.16 o posterior; no se presupone la versión productiva.
 - Dos modos de acceso y dos políticas de historial independientes, comportamientos y estados válidos,
-  tiempos positivos, coordenadas de inicio completas o ausentes, orden de blancos único y ningún
+  tiempos y límites del MVP, coordenadas de puestos válidas, órdenes de puestos/blancos únicos y ningún
   veredicto para evaluaciones interrumpidas.
 - Se archivan zonas y referencias externas; eliminar una zona desde el menú significa archivar.
   El historial sigue consultable por personal autorizado. Desactivar impide nuevas prácticas.
@@ -338,8 +382,8 @@ abierto cuando se revocó el permiso. No se conserva acceso por un listado previ
    el 2026-10-08 con sesiones/edición independientes y archivo v7. Todas las zonas actuales son públicas.
 3. Implementar libre/restringido y selección de grupos/facciones mediante el adaptador de membresía.
 4. Mantener el archivo como backend inicial o conectar SQL mediante la capa de almacenamiento.
-   El backend de archivo v7 ya migra los formatos 1-6 a una zona #1 pública; no se harán
-   escrituras dobles archivo/BD automáticamente. El DDL sigue siendo una propuesta sin conexión runtime.
+   El backend de archivo v9 migra los formatos 1-6 a una zona #1 pública y conserva las zonas/puestos de v7-v8.
+   No se harán escrituras dobles archivo/BD automáticamente. El DDL sigue siendo una propuesta sin conexión runtime.
 5. Incorporar la política de historial y `/evaluaciontiro` con registro fiable de inicio/cierre/detalle;
    mantener `/practica` sin historial. Conectar después reglas/asignaciones y consultas/revisiones
    de supervisores con comprobación de alcance por intento.
@@ -350,6 +394,45 @@ La exclusión de listas individuales se refiere al acceso para practicar; las as
 de supervisores son permisos separados y sí están contempladas.
 Esas extensiones pueden añadirse con tablas/relaciones específicas cuando exista un caso concreto.
 
+## Funciones de integración conectadas
+
+El nuevo `gamemodes/features/shooting_practice/integration.inc` centraliza las implementaciones
+actuales y los puntos marcados `TODO(SP-DB-...)`. Las funciones se llaman desde el flujo real,
+y no ejecutan SQL ni abren conexiones.
+
+| Función | Punto de llamada actual | Contrato |
+| --- | --- | --- |
+| `PracticeHostIsAdministrator` | `PracticeIsAdministrator` | Política RCON actual. Se sustituirá por el rol administrativo del host. |
+| `PracticeHostCanUseZone` | `PracticeCanUseStation` | Acceso público actual. La futura whitelist usa membresía cargada en memoria. |
+| `PracticeHostResolveSubject` | Puerta de futura evaluación | Devuelve falso y una clave vacía. No inventa identidades con playerid o nickname. |
+| `PracticeRepositoryLoad` | Bootstrap del repositorio | Carga y valida archivo v9. El SQL deberá cargar versiones, puestos, indicadores y relaciones en registros temporales. |
+| `PracticeRepositorySave` | `PracticeSaveAndNotify` | Guarda el archivo validado. El booleano es síncrono y exclusivo del archivo. |
+| `PracticeRepositoryBootstrap` | `OnGameModeInit` | Usa el repositorio activo. En SQL esperará a la conexión compartida y a una carga validada. |
+| `PracticeIntegrationBeforeStart` | Antes de cuenta atrás | Recibe propósito, origen, puesto y plan congelados. Acepta entrenamiento y rechaza evaluación hasta implementar identidad y registro duradero. |
+| `PracticeIntegrationOnEnd` | `PracticeEnd`, antes de limpiar | Recibe el resultado, motivo, origen y plan aunque no se notifique al jugador. Devuelve `NOT_RECORDED` para entrenamiento y `UNAVAILABLE` para evaluación. |
+| `PracticeIntegrationShutdown` | `OnGameModeExit`, antes de liberar sesiones | Ofrece las sesiones activas al puerto de cierre, sin UI/audio ni historial de entrenamiento. |
+
+`PracticePurpose` se congela en la sesión. `/practica` lo fija en entrenamiento. No existe
+un comando de evaluación operativo, un backend SQL seleccionable ni un guardado que simule éxito.
+Las claves BIGINT resueltas por el host se representarán como cadenas decimales, con espacio para
+20 dígitos y el terminador. Las zonas del archivo conservan sus IDs actuales.
+
+Antes de activar evaluaciones se debe añadir el estado de espera de registro, contexto persistente
+de sujeto/versión/puesto/intento, timestamps UTC y callbacks de confirmación. Una consulta en cola
+no puede devolver el éxito síncrono de `PracticeRepositorySave`. Debe conservar la revisión esperada
+y el solicitante, y confirmar únicamente la versión comprometida. El cierre deberá copiar sus
+argumentos antes de retornar para conservarlos tras la limpieza, con reintento duradero e idempotente.
+El apagado coordinado por el host debe drenar escrituras antes de cerrar la conexión compartida.
+
+Los TODOs de funcionalidades futuras quedan identificados en `integration.inc`:
+
+- `SP-ACCESS-UI`, junto con `SP-ACCESS`: selección de acceso libre/restringido y asignación
+  de uno o varios grupos/facciones desde el panel administrativo del campo.
+- `SP-SUPERVISION`: asignaciones de supervisores y reglas por facción/rango, con consultas
+  y observaciones limitadas al alcance autorizado. No concede acceso para practicar ni configurar.
+
+Estos marcadores son puntos de desarrollo futuro. No añaden menús, comandos ni permisos operativos.
+
 ## Preparación para formalizar la especificación
 
 El dominio y las reglas principales están suficientemente definidos para redactar la especificación
@@ -357,7 +440,8 @@ funcional de la primera versión: administración de múltiples zonas, configura
 acceso libre o whitelist de grupos, entrenamiento sin registro, evaluación con historial opcional
 por zona, estados/resultados/detalle y supervisión por rango o asignación individual con alcances.
 Los comandos propuestos y las responsabilidades entre administrador, participante y supervisor
-también están definidos. El prototipo actual no implementa todavía esa versión administrativa.
+también están definidos. El MVP ya implementa la administración RCON de zonas, puestos y reglas.
+El acceso restringido, la evaluación registrada y la supervisión requieren la futura integración con el servidor principal.
 
 Las siguientes dependencias técnicas se documentarán como contratos de integración; no requieren
 reabrir las reglas funcionales para comenzar a formalizar el documento:
@@ -371,13 +455,34 @@ reabrir las reglas funcionales para comenzar a formalizar el documento:
 | Entorno SQL | Verificar versión/compatibilidad real del plugin y motor antes de convertir el DDL de referencia en migraciones. |
 
 Con el backend actual de solo archivo no se habilitan evaluaciones registradas: su inicio requiere la versión
-duradera y las referencias que necesita el historial. Las migraciones del archivo actual y los
-límites operativos del registro de zonas se concretarán al implementar. Los nombres definitivos
+duradera y las referencias que necesita el historial. La migración del archivo a SQL y los
+límites operativos del backend SQL se concretarán al implementarlo. La migración entre formatos
+anteriores y el archivo v9, junto con los límites del registro actual, ya están implementados. Los nombres definitivos
 de comandos de consulta/observaciones y el detalle de sus diálogos pertenecen a la especificación
 de interfaz; sus permisos, alcance y datos ya están definidos. La formalización puede comenzar
 sin presentarlos como código terminado ni asumir IDs/esquemas productivos inexistentes.
 
-## Validación del borrador
+## Validación del modelo actualizado: 2026-10-11
+
+El DDL de dieciséis tablas se creó en MySQL 8.0.34, en una instancia temporal con directorio de datos
+propio y puerto de loopback independiente. Pasaron **54 comprobaciones** de puestos múltiples,
+órdenes escasos/unicidad/límites, nombres y posiciones, indicadores por versión, tiempos decimales,
+armas, catálogo, FK del puesto elegido, rechazo de otras zonas/versiones, mensajes con tildes
+y conservación del origen histórico al cambiar o archivar la zona.
+
+Prueba reproducible: `scripts/test-shooting-practice-sql.ps1`, con
+`tests/shooting_practice_schema.sql`. El runner usa la instalación de MySQL solo como ejecutable,
+inicializa sus propios datos y evita los archivos de opciones/login del usuario. Detiene solo su
+instancia temporal. No aplica SQL al servidor de juego ni a servicios de BD existentes.
+Registro local: `.local-server/sql-tests/ffe113a930cb42b3bd265013d783f2c0/checks.log`.
+
+Las pruebas Pawn pasaron **1291 comprobaciones sin fallos**, incluyendo las llamadas de integración,
+propósito de entrenamiento, rechazo de evaluaciones sin backend, snapshot del puesto/plan antes
+de limpiar, desconexión sin notificación, rechazo de inicio y persistencia real por archivo.
+El gamemode completo también compila. Las reglas futuras de membresía e historial siguen sin
+backend operativo. No se reinició el servidor jugable para aplicar estas funciones.
+
+## Validaciones anteriores del borrador
 
 En 2026-10-08 se creó el esquema en MySQL 8.0.45 dentro de una BD temporal, sin publicar puertos
 ni conectar el servidor de juego. Pasaron 36 comprobaciones de relaciones, estados e historial:
@@ -402,6 +507,7 @@ identidades, membresía o autorización del servidor real.
 
 ## Referencias técnicas
 
+- [MySQL: archivo de login aislado mediante MYSQL_TEST_LOGIN_FILE](https://dev.mysql.com/doc/refman/8.0/en/environment-variables.html).
 - [MySQL: claves foráneas](https://dev.mysql.com/doc/refman/8.0/en/create-table-foreign-keys.html).
 - [MySQL: restricciones CHECK](https://dev.mysql.com/doc/refman/8.0/en/create-table-check-constraints.html).
 - [MariaDB: restricciones](https://mariadb.com/docs/server/reference/sql-statements/data-definition/constraint).

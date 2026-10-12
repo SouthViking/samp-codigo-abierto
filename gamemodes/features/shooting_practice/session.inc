@@ -15,6 +15,7 @@ enum E_PRACTICE_SESSION
 {
     E_PRACTICE_PHASE:PracticePhase,
     PracticePlayer,
+    E_PRACTICE_PURPOSE:PracticePurpose,
     STREAMER_TAG_OBJECT:PracticeObject,
     PracticeSlot,
     PracticeTotal,
@@ -36,6 +37,12 @@ enum E_PRACTICE_SESSION
     PracticeLastCountdown,
     PracticeCountdownCueAt
 }
+
+forward bool:PracticeIntegrationBeforeStart(zone, const session[E_PRACTICE_SESSION],
+    const origin[E_PRACTICE_POINT], startSlot, const slots[], const models[], const bool:noShoot[]);
+forward E_PRACTICE_HISTORY_STATUS:PracticeIntegrationOnEnd(zone, bool:completed, const reason[],
+    const session[E_PRACTICE_SESSION], const origin[E_PRACTICE_POINT], startSlot,
+    const slots[], const models[], const bool:noShoot[]);
 
 // One independent session/sequence per zone, with one active attempt per player.
 // The player lookup routes shots and lifecycle cleanup to their owning zone.
@@ -60,7 +67,7 @@ stock bool:PracticeIsBusy(zone)
 // The current standalone prototype deliberately allows every non-NPC player.
 stock bool:PracticeCanUseStation(zone, playerid)
 {
-    return PracticeZoneExists(zone) && !PracticeZoneArchived[zone] && !IsPlayerNPC(playerid);
+    return PracticeZoneExists(zone) && !PracticeZoneArchived[zone] && PracticeHostCanUseZone(zone, playerid);
 }
 
 stock PracticeGetPlayerZone(playerid)
@@ -125,12 +132,11 @@ stock PracticeEnd(zone, bool:completed, const reason[] = "", bool:notify = true,
     if (!PracticeIsBusy(zone)) return 1;
     new result[E_PRACTICE_SESSION];
     result = PracticeSession[zone];
-    // TODO(SP-DB-RESULT): for evaluations only, retain an immutable final snapshot
-    // before cleanup. Unrecorded training must never create history rows. Use
-    // stable subject/zone/attempt IDs, completion/reason, counters and frozen
-    // rules. Failed/cancelled evaluations stay recorded; interruptions have
-    // no verdict. Persist idempotently, with durable retry after a failed close.
-    // Always clean up; never claim a saved result before persistence is confirmed.
+    // Supply the final snapshot, frozen origin and sequence before cleanup.
+    // The active training port returns NOT_RECORDED, never a fake DB acknowledgement.
+    PracticeIntegrationOnEnd(zone, completed, reason, result, PracticeSessionOrigin[zone],
+        PracticeSessionStartSlot[zone], PracticeSequenceSlots[zone],
+        PracticeSequenceModels[zone], PracticeSequenceNoShoot[zone]);
     // Keep the frozen origin through the final public cue, including abandonment.
     PracticeCleanup(zone, true);
     new playerid = result[PracticePlayer];
@@ -378,6 +384,7 @@ stock PracticeStart(zone, playerid)
     PracticeSessionStartSlot[zone] = PracticeNearestStart(zone, playerid, PRACTICE_START_RADIUS);
     PracticeSessionOrigin[zone] = PracticePoints[zone][PracticeSessionStartSlot[zone]];
     PracticeSession[zone][PracticePlayer] = playerid;
+    PracticeSession[zone][PracticePurpose] = SP_PURPOSE_TRAINING;
     PracticePlayerZone[playerid] = zone;
     // TODO(SP-DB-IDENTITY): for recorded evaluations, capture the selected zone
     // version, stable host subject, unique attempt ID, UTC start and sequence.
@@ -389,6 +396,13 @@ stock PracticeStart(zone, playerid)
     PracticeSession[zone][PracticeAllowedErrors] = PracticeRules[zone][PracticeMaxErrors];
     PracticeSession[zone][PracticeAllowedWeapons] = PracticeRules[zone][PracticeWeaponMask];
     PracticeSession[zone][PracticeLastWeapon] = GetPlayerWeapon(playerid);
+    if (!PracticeIntegrationBeforeStart(zone, PracticeSession[zone], PracticeSessionOrigin[zone],
+        PracticeSessionStartSlot[zone], PracticeSequenceSlots[zone],
+        PracticeSequenceModels[zone], PracticeSequenceNoShoot[zone]))
+    {
+        PracticeCleanup(zone);
+        return SendClientMessage(playerid, COLOR_FADE3, "No se pudo preparar la práctica. Inténtalo de nuevo.");
+    }
     PracticeSession[zone][PracticePhase] = PRACTICE_COUNTDOWN;
     PracticeSession[zone][PracticePhaseStarted] = GetTickCount();
     PracticeSession[zone][PracticePhaseDuration] = PracticeRules[zone][PracticePreparation] * 1000;

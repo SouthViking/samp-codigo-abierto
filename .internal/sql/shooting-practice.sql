@@ -1,4 +1,4 @@
--- DESIGN PROPOSAL, 2026-10-08. Not a production migration or an enabled backend.
+-- DESIGN PROPOSAL, 2026-10-11. Not a production migration or an enabled backend.
 -- Reference dialect: MySQL 8.0.16+, InnoDB, enforced CHECK constraints.
 -- Apply only to an empty disposable database when validating this proposal.
 -- The host gamemode owns authentication, group membership and administrative roles.
@@ -71,14 +71,12 @@ CREATE TABLE sp_zone_versions (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     zone_id BIGINT UNSIGNED NOT NULL,
     version_number INT UNSIGNED NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    access_mode VARCHAR(12) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'restricted',
+    name VARCHAR(48) NOT NULL,
+    access_mode VARCHAR(12) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'open',
     -- Independent of access: training is unrecorded; evaluations require this policy.
     history_policy VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'none',
-    start_x DECIMAL(12,6) NULL,
-    start_y DECIMAL(12,6) NULL,
-    start_z DECIMAL(12,6) NULL,
-    start_heading DECIMAL(8,4) NOT NULL DEFAULT 0,
+    -- One zone-level preference applies to every start. Model/type/height remain code constants.
+    start_indicators_enabled TINYINT NOT NULL DEFAULT 0,
     interior_id SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     virtual_world_id INT UNSIGNED NOT NULL DEFAULT 0,
     start_radius DECIMAL(8,3) NOT NULL DEFAULT 1.5,
@@ -102,14 +100,19 @@ CREATE TABLE sp_zone_versions (
     CONSTRAINT ck_sp_version_number CHECK (version_number > 0),
     CONSTRAINT ck_sp_version_access CHECK (access_mode IN ('open', 'restricted')),
     CONSTRAINT ck_sp_version_history CHECK (history_policy IN ('none', 'evaluations_only')),
-    CONSTRAINT ck_sp_version_start CHECK (
-        (start_x IS NULL AND start_y IS NULL AND start_z IS NULL)
-        OR (start_x IS NOT NULL AND start_y IS NOT NULL AND start_z IS NOT NULL)
+    CONSTRAINT ck_sp_version_name CHECK (CHAR_LENGTH(TRIM(name)) > 0),
+    CONSTRAINT ck_sp_version_indicators CHECK (start_indicators_enabled IN (0, 1)),
+    CONSTRAINT ck_sp_version_dimension CHECK (interior_id <= 255 AND virtual_world_id <= 2147483647),
+    -- Radii are frozen engine constants in this MVP, not per-zone menu settings.
+    CONSTRAINT ck_sp_version_radii CHECK (start_radius = 1.5 AND movement_radius = 3.0),
+    CONSTRAINT ck_sp_version_timing CHECK (
+        preparation_ms BETWEEN 1000 AND 30000 AND MOD(preparation_ms, 1000) = 0
+        AND target_exposure_ms BETWEEN 100 AND 60000 AND MOD(target_exposure_ms, 100) = 0
+        AND target_interval_ms BETWEEN 0 AND 30000 AND MOD(target_interval_ms, 100) = 0
     ),
-    CONSTRAINT ck_sp_version_heading CHECK (start_heading >= 0 AND start_heading < 360),
-    CONSTRAINT ck_sp_version_radii CHECK (start_radius > 0 AND movement_radius >= start_radius),
-    CONSTRAINT ck_sp_version_timing CHECK (preparation_ms > 0 AND target_exposure_ms > 0),
-    CONSTRAINT ck_sp_version_score CHECK (minimum_net_score >= 0),
+    CONSTRAINT ck_sp_version_score CHECK (
+        minimum_net_score BETWEEN 1 AND 10 AND maximum_identification_errors BETWEEN 0 AND 10
+    ),
     CONSTRAINT ck_sp_version_order CHECK (order_mode IN ('fixed', 'random')),
     CONSTRAINT ck_sp_version_distribution CHECK (distribution_mode IN ('fixed', 'random'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -119,27 +122,58 @@ ALTER TABLE sp_zones ADD CONSTRAINT fk_sp_zone_current
     FOREIGN KEY (id, current_version_id) REFERENCES sp_zone_versions (zone_id, id)
     ON DELETE RESTRICT ON UPDATE RESTRICT;
 
+-- Starts are immutable version children. Sparse order 1..10 maps through PracticeStartSlot,
+-- never through a persistent Pawn array slot. All starts/targets share the version dimension.
+-- A partial inactive version may have no starts; activation validates layout/geometry in the service.
+CREATE TABLE sp_zone_starts (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    zone_version_id BIGINT UNSIGNED NOT NULL,
+    sort_order TINYINT UNSIGNED NOT NULL,
+    name VARCHAR(32) NULL,
+    position_x DECIMAL(12,6) NOT NULL,
+    position_y DECIMAL(12,6) NOT NULL,
+    position_z DECIMAL(12,6) NOT NULL,
+    heading DECIMAL(10,6) NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_sp_start_order (zone_version_id, sort_order),
+    UNIQUE KEY uq_sp_start_version (zone_version_id, id),
+    CONSTRAINT fk_sp_start_version FOREIGN KEY (zone_version_id)
+        REFERENCES sp_zone_versions (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT ck_sp_start_order CHECK (sort_order BETWEEN 1 AND 10),
+    CONSTRAINT ck_sp_start_position CHECK (
+        position_x BETWEEN -20000 AND 20000
+        AND position_y BETWEEN -20000 AND 20000
+        AND position_z BETWEEN -20000 AND 20000
+    ),
+    CONSTRAINT ck_sp_start_heading CHECK (heading >= 0 AND heading < 360)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Targets are rows; no fixed target1..target10 columns or runtime object handles.
 CREATE TABLE sp_zone_targets (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     zone_version_id BIGINT UNSIGNED NOT NULL,
     sort_order INT UNSIGNED NOT NULL,
-    name VARCHAR(100) NULL,
+    name VARCHAR(32) NULL,
     -- Signed IDs also allow future SA-MP 0.3.DL custom object models.
     model_id INT NOT NULL,
     behavior VARCHAR(12) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     position_x DECIMAL(12,6) NOT NULL,
     position_y DECIMAL(12,6) NOT NULL,
     position_z DECIMAL(12,6) NOT NULL,
-    rotation_x DECIMAL(8,4) NOT NULL DEFAULT 0,
-    rotation_y DECIMAL(8,4) NOT NULL DEFAULT 0,
-    rotation_z DECIMAL(8,4) NOT NULL DEFAULT 0,
+    rotation_x DECIMAL(10,6) NOT NULL DEFAULT 0,
+    rotation_y DECIMAL(10,6) NOT NULL DEFAULT 0,
+    rotation_z DECIMAL(10,6) NOT NULL DEFAULT 0,
     PRIMARY KEY (id),
     UNIQUE KEY uq_sp_target_order (zone_version_id, sort_order),
     UNIQUE KEY uq_sp_target_version (zone_version_id, id),
     CONSTRAINT fk_sp_target_version FOREIGN KEY (zone_version_id)
         REFERENCES sp_zone_versions (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
-    CONSTRAINT ck_sp_target_order CHECK (sort_order > 0),
+    CONSTRAINT ck_sp_target_order CHECK (sort_order BETWEEN 1 AND 10),
+    CONSTRAINT ck_sp_target_position CHECK (
+        position_x BETWEEN -20000 AND 20000
+        AND position_y BETWEEN -20000 AND 20000
+        AND position_z BETWEEN -20000 AND 20000
+    ),
     CONSTRAINT ck_sp_target_model CHECK (model_id <> 0),
     CONSTRAINT ck_sp_target_behavior CHECK (behavior IN ('shoot', 'protected')),
     CONSTRAINT ck_sp_target_rotation CHECK (
@@ -155,7 +189,7 @@ CREATE TABLE sp_zone_weapons (
     PRIMARY KEY (zone_version_id, weapon_id),
     CONSTRAINT fk_sp_weapon_version FOREIGN KEY (zone_version_id)
         REFERENCES sp_zone_versions (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
-    CONSTRAINT ck_sp_weapon_id CHECK (weapon_id > 0)
+    CONSTRAINT ck_sp_weapon_id CHECK (weapon_id BETWEEN 22 AND 34)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Group/faction whitelist only. There is no per-user practice grant in this scope.
@@ -174,17 +208,21 @@ CREATE TABLE sp_zone_groups (
 -- Only recorded evaluations create attempts; unrecorded training creates no history rows.
 -- The service must validate history_policy before registering an evaluation. A FK alone
 -- does not enforce eligibility. Changing the current policy never erases old attempts.
+-- The selected start is from the same immutable version, preserving booth/origin history.
 -- Counters and automatic evaluation are the recorded final summary. Accuracy is derived.
 CREATE TABLE sp_attempts (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     attempt_key CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     zone_version_id BIGINT UNSIGNED NOT NULL,
+    start_point_id BIGINT UNSIGNED NOT NULL,
     participant_subject_id BIGINT UNSIGNED NOT NULL,
     participant_name_at_start VARCHAR(100) NOT NULL,
     status VARCHAR(12) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'in_progress',
     started_at_utc DATETIME(3) NOT NULL,
     ended_at_utc DATETIME(3) NULL,
     interruption_reason VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    -- Preserve the localized explanation separately from the stable machine-readable code.
+    interruption_message VARCHAR(144) NULL,
     scoring_version VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     shots_fired INT UNSIGNED NOT NULL DEFAULT 0,
     hit_count INT UNSIGNED NOT NULL DEFAULT 0,
@@ -196,11 +234,14 @@ CREATE TABLE sp_attempts (
     PRIMARY KEY (id),
     UNIQUE KEY uq_sp_attempt_key (attempt_key),
     UNIQUE KEY uq_sp_attempt_version (id, zone_version_id),
+    KEY ix_sp_attempt_start (zone_version_id, start_point_id),
     KEY ix_sp_attempt_participant (participant_subject_id, started_at_utc, id),
     KEY ix_sp_attempt_history (zone_version_id, started_at_utc, id),
     KEY ix_sp_attempt_recovery (status, started_at_utc, id),
     CONSTRAINT fk_sp_attempt_version FOREIGN KEY (zone_version_id)
         REFERENCES sp_zone_versions (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_sp_attempt_start FOREIGN KEY (zone_version_id, start_point_id)
+        REFERENCES sp_zone_starts (zone_version_id, id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_sp_attempt_participant FOREIGN KEY (participant_subject_id)
         REFERENCES sp_subjects (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT ck_sp_attempt_passed CHECK (passed IS NULL OR passed IN (0, 1)),

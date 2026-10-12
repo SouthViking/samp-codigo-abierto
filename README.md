@@ -31,9 +31,20 @@ El objetivo de este proyecto de código abierto es democratizar el conocimiento, 
 La preparación reproducible y los comandos de inicio, estado y apagado están en [.internal/local-windows-server.md](.internal/local-windows-server.md).
 El entorno se instala en `.local-server/` (ignorado por Git) y permite conectar desde el mismo PC a `127.0.0.1:7777`.
 
-## Practicas de tiro (MVP)
-Abre `/practicaconfig` para configurar hasta diez blancos desde diálogos: objeto y comportamiento independientes, editor visual de posición/rotación, vista previa privada, varias armas permitidas, reglas con ayuda y aleatoriedad. Inicia con `/practica`; incluye cuenta regresiva en pantalla y resultados explicados.
-La guia para probarlo esta en [.internal/shooting-practice-testing.md](.internal/shooting-practice-testing.md).
+## Prácticas de tiro (MVP)
+
+Sistema configurable dentro del juego con hasta 64 zonas independientes por defecto, diez puestos y diez blancos por zona. `/practicaconfig` permite administrarlas mediante RCON. `/practica` inicia un ejercicio desde un puesto cercano, con una sola práctica activa por zona y blancos visibles para quienes estén en su interior y mundo.
+
+Incluye editor visual, catálogo de nueve objetos, blancos de tiro y protegidos, varias armas permitidas, reglas y tiempos configurables, aleatoriedad, vista previa privada, indicadores de inicio opcionales, cuenta regresiva, sonidos, acciones de rol y resultados con precisión y veredicto. La configuración se guarda en archivo v9. Las sesiones y resultados son temporales.
+
+- [Demostración del MVP en YouTube](https://www.youtube.com/watch?v=cpVQbs0igC8).
+- [Resumen para revisar la PR](.internal/shooting-practice-pr.md).
+- [Documentación técnica del sistema](.internal/shooting-practice-mvp.md).
+- [Guía de configuración y pruebas](.internal/shooting-practice-testing.md).
+- [Modelo de datos y contratos de integración](.internal/shooting-practice-data-model.md), con [DDL SQL propuesto](.internal/sql/shooting-practice.sql).
+- [Pruebas automatizadas y evidencia](tests/README.md).
+
+El backend SQL, los permisos del staff del servidor principal, el acceso por facción/grupo y el historial de evaluaciones corresponden a la integración futura. El modelo y las funciones de integración están preparados, pero esas funciones futuras no están habilitadas.
 
 ## Licencia
-Este proyecto está licenciado bajo los términos de la [Licencia MIT](https://opensource.org/licenses/MIT). Eres libre de usar, modificar y distribuir este software con pocas restricciones.  
+Este proyecto está licenciado bajo los términos de la [Licencia MIT](https://opensource.org/licenses/MIT). Eres libre de usar, modificar y distribuir este software con pocas restricciones.

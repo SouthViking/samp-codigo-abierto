@@ -28,6 +28,10 @@
 #define PRACTICE_WEAPONS_ALL ((1 << (PRACTICE_WEAPON_LAST - PRACTICE_WEAPON_FIRST + 1)) - 1)
 #define PRACTICE_WEAPON_DEFAULT (1 << (24 - PRACTICE_WEAPON_FIRST))
 #define PRACTICE_CONFIG_FILE "shooting_practice.cfg"
+// SQL keys are decimal strings when resolved by the host, never truncated Pawn cells.
+#define PRACTICE_SUBJECT_KEY_SIZE (21)
+enum E_PRACTICE_PURPOSE { SP_PURPOSE_TRAINING, SP_PURPOSE_EVALUATION }
+enum E_PRACTICE_HISTORY_STATUS { SP_HISTORY_NOT_RECORDED, SP_HISTORY_UNAVAILABLE }
 enum E_PRACTICE_POINT
 {
     bool:PracticePointSet,
@@ -362,3 +366,8 @@ stock bool:PracticeConfigurationReady(zone, reason[], size = sizeof reason)
     }
     return false;
 }
+
+// Typed host/repository ports are declared before registry/editor consumers.
+forward bool:PracticeHostIsAdministrator(playerid);
+forward bool:PracticeHostCanUseZone(zone, playerid);
+forward bool:PracticeRepositorySave();

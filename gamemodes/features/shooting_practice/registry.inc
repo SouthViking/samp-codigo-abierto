@@ -17,12 +17,12 @@ new bool:PracticeRegistrySavePending, bool:PracticeStorageBlocked;
 new PracticeSelectedZone[MAX_PLAYERS] = {-1, ...};
 new PracticeSelectedZoneID[MAX_PLAYERS];
 
-// TODO(SP-ADMIN): replace RCON with the host's cached administrative role here.
+// Host policy is supplied through the explicit integration port.
 // Configuration authority stays separate from participation/supervision grants.
 stock bool:PracticeIsAdministrator(playerid)
 {
     return playerid >= 0 && playerid < MAX_PLAYERS && IsPlayerConnected(playerid)
-        && !IsPlayerNPC(playerid) && IsPlayerAdmin(playerid);
+        && !IsPlayerNPC(playerid) && PracticeHostIsAdministrator(playerid);
 }
 
 stock bool:PracticeZoneExists(zone)

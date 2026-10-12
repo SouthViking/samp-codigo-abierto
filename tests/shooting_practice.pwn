@@ -29,6 +29,8 @@
 #define TEST_PLAYERS (5)
 
 new TestNow, TestFailures, TestAssertions;
+new TestIntegrationStarts, TestIntegrationEnds, TestRepositorySaves, TestIntegrationStartSlot, TestIntegrationEndSlot;
+new bool:TestIntegrationReject;
 new bool:TestConnected[TEST_PLAYERS], bool:TestAdmin[TEST_PLAYERS], bool:TestNPC[TEST_PLAYERS];
 new TestState[TEST_PLAYERS], TestWeapon[TEST_PLAYERS], TestAmmo[TEST_PLAYERS][13], TestSlotWeapon[TEST_PLAYERS][13], TestWorld[TEST_PLAYERS], TestInterior[TEST_PLAYERS];
 new Float:TestPosition[TEST_PLAYERS][3], Float:TestHealth[TEST_PLAYERS];
@@ -347,20 +349,62 @@ stock TestRandom(maximum)
 // Capture the typed result at the presentation boundary, then run the actual
 // formatter. Scoring assertions do not depend on translated chat wording.
 #define PracticeReportResult TestRecordResult
+#define PracticeIntegrationBeforeStart TestIntegrationStart
+#define PracticeIntegrationOnEnd TestIntegrationEnd
 #include "../gamemodes/features/shooting_practice/session.inc"
 #undef PracticeReportResult
+#undef PracticeIntegrationBeforeStart
+#undef PracticeIntegrationOnEnd
 #define PracticeSendResultLine TestSendResultMessage
 #include "../gamemodes/features/shooting_practice/presentation.inc"
 #undef PracticeSendResultLine
 #include "../gamemodes/features/shooting_practice/editor.inc"
 #define fopen TestStorageOpen
+forward bool:TestRepositorySave();
+#define PracticeRepositorySave TestRepositorySave
 #include "../gamemodes/features/shooting_practice/storage.inc"
 #undef fopen
+#undef PracticeRepositorySave
+#include "../gamemodes/features/shooting_practice/integration.inc"
 #include "../gamemodes/features/shooting_practice/setup.inc"
 #include "../gamemodes/features/shooting_practice/catalogue.inc"
 #include "../gamemodes/features/shooting_practice/start_setup.inc"
 #include "../gamemodes/features/shooting_practice/zone_setup.inc"
 #include "../gamemodes/features/shooting_practice/discovery.inc"
+
+new TestIntegrationFinal[E_PRACTICE_SESSION], TestIntegrationOrigin[E_PRACTICE_POINT];
+new TestIntegrationModels[PRACTICE_MAX_TARGETS], TestIntegrationSlots[PRACTICE_MAX_TARGETS];
+new bool:TestIntegrationTypes[PRACTICE_MAX_TARGETS];
+
+stock bool:TestRepositorySave()
+{
+    TestRepositorySaves++;
+    return PracticeRepositorySave();
+}
+stock bool:TestIntegrationStart(zone, const session[E_PRACTICE_SESSION],
+    const origin[E_PRACTICE_POINT], startSlot, const slots[], const models[], const bool:noShoot[])
+{
+    TestIntegrationStarts++;
+    TestIntegrationStartSlot = startSlot;
+    if (TestIntegrationReject) return false;
+    return PracticeIntegrationBeforeStart(zone, session, origin, startSlot, slots, models, noShoot);
+}
+stock E_PRACTICE_HISTORY_STATUS:TestIntegrationEnd(zone, bool:completed, const reason[],
+    const session[E_PRACTICE_SESSION], const origin[E_PRACTICE_POINT], startSlot,
+    const slots[], const models[], const bool:noShoot[])
+{
+    TestIntegrationEnds++;
+    TestIntegrationEndSlot = startSlot;
+    TestIntegrationFinal = session;
+    TestIntegrationOrigin = origin;
+    for (new i = 0; i < session[PracticeTotal]; i++)
+    {
+        TestIntegrationSlots[i] = slots[i];
+        TestIntegrationModels[i] = models[i];
+        TestIntegrationTypes[i] = noShoot[i];
+    }
+    return PracticeIntegrationOnEnd(zone, completed, reason, session, origin, startSlot, slots, models, noShoot);
+}
 
 stock TestSendResultMessage(playerid, color, const message[])
 {
@@ -463,6 +507,8 @@ stock ResetTest(targets = 3)
         TestLastMessage[playerid][0] = TestChat[playerid][0] = EOS;
         playerEditingObjectID[playerid] = -1; TestCancelEdits[playerid] = 0;
     }
+    TestIntegrationStarts = TestIntegrationEnds = TestRepositorySaves = 0;
+    TestIntegrationReject = false; TestIntegrationStartSlot = TestIntegrationEndSlot = -1;
     TestNow = 1000; TestNextObject = 0; TestCreateFails = false; TestVisible = true;
     TestResult = 0; TestResultShots = 0; TestResultHits = 0; TestResultExpired = 0;
     TestResultIgnored = TestResultErrors = TestResultShootTotal = TestResultNoShootTotal = 0;
@@ -747,6 +793,7 @@ stock TestRandomSequences()
 
 #include "shooting_practice_ui.inc"
 #include "shooting_practice_catalogue.inc"
+#include "shooting_practice_integration.inc"
 #include "shooting_practice_polish.inc"
 
 stock TestStorageMigration()
@@ -939,6 +986,7 @@ public OnGameModeInit()
     TestCatalogueTransitions();
     TestMatchingReportBorders();
     TestExpandedTargetModels();
+    TestIntegrationPorts();
     ResetTest();
     PracticeCleanup(0);
     printf("[Practice tests] %d assertions, %d failures", TestAssertions, TestFailures);

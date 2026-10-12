@@ -1,8 +1,12 @@
 # Local Windows development server
 
-Current local state (2026-10-07): the server was stopped at the user's request. The latest verdict-word colors, literal accuracy percentage, final Save row, protected-target label and automatic departure reason compile successfully and pass 606 isolated assertions. They will load on the next requested start. Runtime files and saved station configuration remain local.
+Updated: 2026-10-12. This guide describes reproducible setup and operation for the shooting-practice
+MVP. Use `-Action Status` to check the current process instead of treating past deployment notes
+as live status. The accepted playable build was started on 2026-10-11. Later integration ports
+compile and pass isolated tests but require a requested stop/start to replace that running build.
 
-Prepared on 2026-10-02 and startup-checked again on 2026-10-03 for this checkout's `feat/shooting-practice-mvp` branch.
+See the [PR review summary](shooting-practice-pr.md), [configuration/testing guide](shooting-practice-testing.md)
+and [MVP demonstration](https://www.youtube.com/watch?v=cpVQbs0igC8) for the feature's current scope.
 
 ## Run
 
@@ -51,39 +55,31 @@ The local configuration binds to loopback, retains lag compensation for shot cal
 
 ## Validation and limits
 
-- Compiled the full gamemode with the committed includes and Pawn 3.10.10.
-- Loaded all seven configured plugins and the ColAndreas database.
-- Observed completion of `OnGameModeInit` and the server's `Number of vehicle models` startup marker.
-- Queried SA-MP UDP information at 127.0.0.1:7777 and received the expected hostname, mode and player capacity.
-- Confirmed local RCON shutdown and a subsequent launch through the scripts.
-- Runtime files, credentials, caches and generated AMX files remain ignored by Git.
+- The accepted playable MVP was compiled and started on 2026-10-11 after an explicit request.
+  All seven plugins and the ColAndreas database loaded, startup reached `OnGameModeInit`, and
+  SA-MP UDP status confirmed `127.0.0.1:7777`. The saved configuration hash stayed unchanged
+  across that start. The user accepted this development iteration.
+- The later integration preparation compiles the full gamemode with Pawn 3.10.10 and warnings
+  treated as errors. It passes **1291 Pawn assertions** and **54 schema checks on real MySQL 8.0.34**.
+  See [tests/README.md](../tests/README.md) for commands, recorded evidence and test coverage.
+  These ports retain file persistence and unrecorded training. They do not enable a SQL backend.
+- New configuration saves use **file format v9**, with zones, multiple posts, targets, rules,
+  names, active/archive state and optional indicators. Formats 1-8 migrate on load without
+  rewriting the source. A later confirmed save writes v9. See the
+  [storage contract](shooting-practice-mvp.md#storage-and-migration).
+- Runtime files, credentials, caches, AMX files, test databases and saved layouts stay local
+  under ignored paths. Each contributor creates their own configuration and RCON password.
+- Automated adapters simulate player/UI/streamer/audio behavior. Native client rendering,
+  collision, sound, accents and callback dispatch remain manual checks. The
+  [testing guide](shooting-practice-testing.md) includes the client scenarios.
+- Windows SA-MP 0.3.DL-R1 is the reproducible runtime verified here. A Linux deployment
+  requires its own compatible plugin binaries and a runtime smoke test.
 
-The 2026-10-03 revision includes dialog configuration, native object editing, per-target models/names/full rotations, private previews, multiple permitted weapons, numeric help, detailed private results, named departure and a participant countdown overlay. The existing layout loaded successfully and retained its exact SHA256 after restart; its configuration and previous executable were backed up locally. Versions 1-4 load automatically and upgrade to v5 only on a later save. The updated server is running at 127.0.0.1:7777.
+During in-game feedback, restart the playable server only on explicit request. Running
+`Start` against an existing instance reports its status and does not apply a source update.
 
-On 2026-10-07 the root menu was simplified: Punto de inicio saves directly, Vista previa stays on the root, Resumen was removed, and reset confirmation uses Reiniciar. The updated build was verified and deployed locally.
+## Development shortcut
 
-Later feedback adds conditional start actions, early distance checks, stable visible targets during editing, simpler behavior names and no duplicated label numbering. The latest source also adds preview-hit repair, five result lines with white details and a green/red verdict, minimum one-second countdown
-cue spacing and decimal exposure/interval in tenths. It compiled separately and passed 569 assertions.
-The latest build was deployed on 2026-10-07 after an explicit user restart request. All seven plugins
-and the practice configuration loaded. UDP responds at 127.0.0.1:7777, and the configuration SHA256
-was unchanged. The previous executable and configuration are backed up under the ignored
-.local-server/backups/verdict-colors-b94276aa573e475d8c8cbf9923e87037 directory.
-New saves use format 6, converting older whole-second
-timings on load without rewriting the saved file.
-
-A subsequent wording correction changes the result to Veredicto: Aprobado / Veredicto: Reprobado,
-keeping the green/red colors. This correction was loaded on 2026-10-07 after the user explicitly requested another restart.
-All seven plugins and the configuration loaded, UDP status responds, and the configuration hash is unchanged.
-
-The next start-capture correction restricts the 100 m draft radius to target drafts, so an initial
-start or a relocation far from the previous station can be saved. It reproduces the reported failure
-and passes 587 assertions after the fix, plus full compilation. This fix and the new /irpruebas
-shortcut were deployed on explicit request on 2026-10-07. The full gamemode compiled, all seven
-plugins and the saved configuration loaded, UDP status responds and the configuration hash is unchanged.
-
-During in-game feedback, keep the playable server running. Restart it only when the user explicitly requests it.
-
-The full gamemode compiled with warnings treated as errors. The original practice was confirmed in-game by the user. Countdown placement, rendered accents, model cards, private visibility, silhouette collision and sound require client validation. See the [configuration and testing guide](shooting-practice-testing.md).
-
-Development shortcut: /irpruebas requires RCON and on-foot state. It moves only the caller to
-802.8580, 1674.5205, 5.2813 at angle 181.2324, interior/world 0. The station remains independently configured.
+`/irpruebas` requires RCON and an alive, on-foot player. It moves only the caller to
+802.8580, 1674.5205, 5.2813 at angle 181.2324, interior/world 0. Zone configuration is independent
+of this convenience command. After teleporting, use `/practicaconfig` to create/select a zone.
